@@ -1,0 +1,11 @@
+= PSDL Specification Package
+
+Open `spec.adoc` with Asciidoctor. All referenced images and included example files are relative to the package root.
+
+Example HTML build:
+
+----
+asciidoctor spec.adoc
+----
+
+The PNG files are provided for applications that cannot display SVG. SVG is the canonical example rendering.

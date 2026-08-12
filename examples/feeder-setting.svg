@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 540" data-orientation="horizontal" data-status="recommended" data-title="Feeder setting" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif">
+<rect x="0" y="0" width="1400" height="540" fill="#ffffff"/>
+<g data-role="header">
+    <text x="40" y="32" font-size="20" font-weight="700" fill="#000000">Feeder setting</text>
+    <line x1="40" y1="44" x2="1360" y2="44" stroke="#d0d7de" stroke-width="0.5"/>
+  </g>
+<rect data-zone="mandatory" x="378.9428571428571" y="60" width="154.10742857142856" height="400" fill="#fbe5e2" opacity="0.35"/>
+<rect data-zone="mandatory" x="404.6274285714286" y="60" width="87.32754285714284" height="400" fill="#e2f2d7" opacity="0.55"/>
+<line x1="250.51999999999998" y1="60" x2="250.51999999999998" y2="460" stroke="#e6e8eb" stroke-width="0.5"/>
+<line x1="1149.48" y1="60" x2="1149.48" y2="460" stroke="#e6e8eb" stroke-width="0.5"/>
+<line x1="250.51999999999998" y1="460.5" x2="1149.48" y2="460.5" stroke="#000000" stroke-width="1"/>
+<line x1="250.51999999999998" y1="456" x2="250.51999999999998" y2="464" stroke="#000000" stroke-width="1"/>
+<text x="250.51999999999998" y="482" font-size="13" text-anchor="middle" fill="#000000">2.5 kA</text>
+<line x1="378.9428571428571" y1="456" x2="378.9428571428571" y2="464" stroke="#000000" stroke-width="1"/>
+<text x="378.9428571428571" y="482" font-size="13" text-anchor="middle" fill="#000000">5 kA</text>
+<line x1="507.36571428571426" y1="456" x2="507.36571428571426" y2="464" stroke="#000000" stroke-width="1"/>
+<text x="507.36571428571426" y="482" font-size="13" text-anchor="middle" fill="#000000">7.5 kA</text>
+<line x1="635.7885714285715" y1="456" x2="635.7885714285715" y2="464" stroke="#000000" stroke-width="1"/>
+<text x="635.7885714285715" y="482" font-size="13" text-anchor="middle" fill="#000000">10 kA</text>
+<line x1="764.2114285714285" y1="456" x2="764.2114285714285" y2="464" stroke="#000000" stroke-width="1"/>
+<text x="764.2114285714285" y="482" font-size="13" text-anchor="middle" fill="#000000">12.5 kA</text>
+<line x1="892.6342857142857" y1="456" x2="892.6342857142857" y2="464" stroke="#000000" stroke-width="1"/>
+<text x="892.6342857142857" y="482" font-size="13" text-anchor="middle" fill="#000000">15 kA</text>
+<line x1="1021.0571428571428" y1="456" x2="1021.0571428571428" y2="464" stroke="#000000" stroke-width="1"/>
+<text x="1021.0571428571428" y="482" font-size="13" text-anchor="middle" fill="#000000">17.5 kA</text>
+<line x1="1149.48" y1="456" x2="1149.48" y2="464" stroke="#000000" stroke-width="1"/>
+<text x="1149.48" y="482" font-size="13" text-anchor="middle" fill="#000000">20 kA</text>
+<line x1="250.51999999999998" y1="60" x2="250.51999999999998" y2="460" stroke="#d4d4d8" stroke-width="0.5" opacity="0.5"/>
+<line x1="378.9428571428571" y1="60" x2="378.9428571428571" y2="460" stroke="#d4d4d8" stroke-width="0.5" opacity="0.5"/>
+<line x1="507.36571428571426" y1="60" x2="507.36571428571426" y2="460" stroke="#d4d4d8" stroke-width="0.5" opacity="0.5"/>
+<line x1="635.7885714285715" y1="60" x2="635.7885714285715" y2="460" stroke="#d4d4d8" stroke-width="0.5" opacity="0.5"/>
+<line x1="764.2114285714285" y1="60" x2="764.2114285714285" y2="460" stroke="#d4d4d8" stroke-width="0.5" opacity="0.5"/>
+<line x1="892.6342857142857" y1="60" x2="892.6342857142857" y2="460" stroke="#d4d4d8" stroke-width="0.5" opacity="0.5"/>
+<line x1="1021.0571428571428" y1="60" x2="1021.0571428571428" y2="460" stroke="#d4d4d8" stroke-width="0.5" opacity="0.5"/>
+<line x1="1149.48" y1="60" x2="1149.48" y2="460" stroke="#d4d4d8" stroke-width="0.5" opacity="0.5"/>
+<circle data-role="criterion" cx="301.8891428571428" cy="260" r="6" fill="#0f766e"/>
+<text data-role="criterion-value" x="301.8891428571428" y="252" font-size="13" text-anchor="middle" font-weight="600" fill="#0f766e">3.5 kA</text>
+<line data-role="leader" x1="301.8891428571428" y1="260" x2="238.51999999999998" y2="260" stroke="#cdd2d8" stroke-width="0.6"/>
+<circle data-role="leader-end" cx="238.51999999999998" cy="260" r="1.5" fill="#cdd2d8"/>
+<text data-role="criterion-label" x="238.51999999999998" y="264" font-size="14" text-anchor="end" fill="#1f2937">Maximum load</text>
+<line data-role="criterion-bar" x1="378.9428571428571" y1="282" x2="404.6274285714286" y2="282" stroke="#0f766e" stroke-width="6" stroke-linecap="butt" opacity="0.9"/>
+<circle data-role="criterion" cx="378.9428571428571" cy="282" r="6" fill="#0f766e"/>
+<text data-role="criterion-value" x="378.9428571428571" y="274" font-size="13" text-anchor="middle" font-weight="600" fill="#0f766e">5 kA</text>
+<circle data-role="margin" cx="404.6274285714286" cy="282" r="6" fill="#ffffff" stroke="#0f766e" stroke-width="2"/>
+<text data-role="margin-value" x="404.6274285714286" y="304" font-size="13" text-anchor="middle" fill="#1f2937">10%</text>
+<g data-role="arrow" transform="translate(418.6274285714286, 282)">
+      <line x1="0" y1="0" x2="10" y2="0" stroke="#0f766e" stroke-width="1.5" opacity="0.85"/>
+      <polyline points="6,-3 10,0 6,3" fill="none" stroke="#0f766e" stroke-width="1.5"/>
+    </g>
+<line data-role="leader" x1="378.9428571428571" y1="282" x2="238.51999999999998" y2="282" stroke="#cdd2d8" stroke-width="0.6"/>
+<circle data-role="leader-end" cx="238.51999999999998" cy="282" r="1.5" fill="#cdd2d8"/>
+<text data-role="criterion-label" x="238.51999999999998" y="286" font-size="14" text-anchor="end" fill="#1f2937">Emergency load</text>
+<line data-role="criterion-bar" x1="491.9549714285714" y1="82" x2="533.0502857142857" y2="82" stroke="#1d4ed8" stroke-width="6" stroke-linecap="butt" opacity="0.9"/>
+<circle data-role="criterion" cx="533.0502857142857" cy="82" r="6" fill="#1d4ed8"/>
+<text data-role="criterion-value" x="533.0502857142857" y="74" font-size="13" text-anchor="middle" font-weight="600" fill="#1d4ed8">8 kA</text>
+<circle data-role="margin" cx="491.9549714285714" cy="82" r="6" fill="#ffffff" stroke="#1d4ed8" stroke-width="2"/>
+<text data-role="margin-value" x="491.9549714285714" y="104" font-size="13" text-anchor="middle" fill="#1f2937">10%</text>
+<g data-role="arrow" transform="translate(477.9549714285714, 82)">
+      <line x1="0" y1="0" x2="-10" y2="0" stroke="#1d4ed8" stroke-width="1.5" opacity="0.85"/>
+      <polyline points="-6,-3 -10,0 -6,3" fill="none" stroke="#1d4ed8" stroke-width="1.5"/>
+    </g>
+<line data-role="leader" x1="1161.48" y1="82" x2="533.0502857142857" y2="82" stroke="#cdd2d8" stroke-width="0.6"/>
+<circle data-role="leader-end" cx="533.0502857142857" cy="82" r="1.5" fill="#cdd2d8"/>
+<text data-role="criterion-label" x="1161.48" y="86" font-size="14" text-anchor="start" fill="#1f2937">Minimum 2-phase fault</text>
+<line data-role="criterion-bar" x1="676.8838857142857" y1="104" x2="738.5268571428571" y2="104" stroke="#1d4ed8" stroke-width="6" stroke-linecap="butt" opacity="0.9"/>
+<circle data-role="criterion" cx="738.5268571428571" cy="104" r="6" fill="#1d4ed8"/>
+<text data-role="criterion-value" x="738.5268571428571" y="96" font-size="13" text-anchor="middle" font-weight="600" fill="#1d4ed8">12 kA</text>
+<circle data-role="margin" cx="676.8838857142857" cy="104" r="6" fill="#ffffff" stroke="#1d4ed8" stroke-width="2"/>
+<text data-role="margin-value" x="676.8838857142857" y="126" font-size="13" text-anchor="middle" fill="#1f2937">10%</text>
+<g data-role="arrow" transform="translate(662.8838857142857, 104)">
+      <line x1="0" y1="0" x2="-10" y2="0" stroke="#1d4ed8" stroke-width="1.5" opacity="0.85"/>
+      <polyline points="-6,-3 -10,0 -6,3" fill="none" stroke="#1d4ed8" stroke-width="1.5"/>
+    </g>
+<line data-role="leader" x1="1161.48" y1="104" x2="738.5268571428571" y2="104" stroke="#cdd2d8" stroke-width="0.6"/>
+<circle data-role="leader-end" cx="738.5268571428571" cy="104" r="1.5" fill="#cdd2d8"/>
+<text data-role="criterion-label" x="1161.48" y="108" font-size="14" text-anchor="start" fill="#1f2937">Minimum 3-phase fault</text>
+<line data-role="selected-line" x1="448.2912" y1="60" x2="448.2912" y2="460" stroke="#c2410c" stroke-width="2"/>
+<text data-role="selected-label" x="448.2912" y="48" font-size="15" font-weight="700" fill="#c2410c" text-anchor="middle">SELECTED 6.35 kA</text>
+<circle data-role="selected-marker-dot" cx="448.2912" cy="260" r="6" fill="#c2410c"/>
+<rect x="560" y="488" width="280" height="22" rx="3" fill="#c2410c" opacity="0.18"/>
+<text x="700" y="504" font-size="14" font-weight="600" fill="#c2410c" text-anchor="middle">RECOMMENDED</text>
+<text x="700" y="526" font-size="13" fill="#1f2937" text-anchor="middle">115.5% of lower · 88.2% of upper</text>
+</svg>

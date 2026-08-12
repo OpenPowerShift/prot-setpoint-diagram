@@ -1,0 +1,20 @@
+# Sample 06 — Absolute margin
+#
+# Margins as absolute quantities, not percentages. Useful when the
+# criteria are in secondary amps and the setting has a fixed
+# minimum step independent of percentage.
+
+diagram "Absolute margins" {
+  orientation horizontal
+  ct 600/1 A
+  show current, secondary
+  scale linear
+  range auto
+
+  below "Maximum load" must 3.5 kA margin 0.4 kA
+  below "Emergency load" must 5 kA margin 0.5 kA
+  above "Minimum 2-phase fault" must 8 kA margin 0.8 kA
+  above "Minimum 3-phase fault" must 12 kA margin 1.2 kA
+
+  selected "Selected setting" midpoint step 50 A
+}

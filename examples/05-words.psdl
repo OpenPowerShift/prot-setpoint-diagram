@@ -1,0 +1,24 @@
+# Sample 05 — Custom words
+#
+# Each status word is replaced with project-specific terminology.
+# The semantics don't change; the labels do.
+
+diagram "Custom words" {
+  orientation horizontal
+  scale auto
+  range auto
+
+  word do-not-set     "PROHIBITED"
+  word caution        "REVIEW"
+  word recommended    "PREFERRED"
+  word selected       "SETTING"
+  word no-recommended "NO PREFERRED SETTING"
+  word no-compliant   "NO VALID SETTING"
+
+  below "Maximum load" must 3.5 kA
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum 2-phase fault" must 8 kA margin 10%
+  above "Minimum 3-phase fault" must 12 kA margin 10%
+
+  selected "Selected setting" midpoint step 0.05 kA
+}

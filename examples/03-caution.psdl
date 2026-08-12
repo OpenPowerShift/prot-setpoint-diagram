@@ -1,0 +1,15 @@
+# Sample 03 — Caution (selection outside preferred)
+#
+# Selection is 7.4 kA — inside the mandatory interval [5, 8] but
+# outside the preferred upper boundary 7.2 kA. Status is CAUTION.
+
+diagram "Caution example" {
+  orientation horizontal
+  scale linear
+  range auto
+
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum fault" must 8 kA margin 10%
+
+  selected "Selected setting" 7.4 kA
+}

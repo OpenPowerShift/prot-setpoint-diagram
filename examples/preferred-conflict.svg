@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 540" data-orientation="horizontal" data-status="no-recommended-setting" data-title="Preferred conflict" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif">
+<rect x="0" y="0" width="1400" height="540" fill="#ffffff"/>
+<g data-role="header">
+    <text x="40" y="32" font-size="20" font-weight="700" fill="#000000">Preferred conflict</text>
+    <line x1="40" y1="44" x2="1360" y2="44" stroke="#d0d7de" stroke-width="0.5"/>
+  </g>
+<rect data-zone="mandatory" x="467.14" y="60" width="465.72" height="400" fill="#fbe5e2" opacity="0.35"/>
+<rect data-zone="mandatory" x="560.2840000000001" y="60" width="232.8600000000004" height="400" fill="#f8c1bd" opacity="0.45"/>
+<line x1="234.28" y1="60" x2="234.28" y2="460" stroke="#e6e8eb" stroke-width="0.5"/>
+<line x1="1165.72" y1="60" x2="1165.72" y2="460" stroke="#e6e8eb" stroke-width="0.5"/>
+<line x1="234.28" y1="460.5" x2="1165.72" y2="460.5" stroke="#000000" stroke-width="1"/>
+<line x1="234.28" y1="456" x2="234.28" y2="464" stroke="#000000" stroke-width="1"/>
+<text x="234.28" y="482" font-size="13" text-anchor="middle" fill="#000000">6.5 kA</text>
+<line x1="467.14" y1="456" x2="467.14" y2="464" stroke="#000000" stroke-width="1"/>
+<text x="467.14" y="482" font-size="13" text-anchor="middle" fill="#000000">7 kA</text>
+<line x1="700" y1="456" x2="700" y2="464" stroke="#000000" stroke-width="1"/>
+<text x="700" y="482" font-size="13" text-anchor="middle" fill="#000000">7.5 kA</text>
+<line x1="932.86" y1="456" x2="932.86" y2="464" stroke="#000000" stroke-width="1"/>
+<text x="932.86" y="482" font-size="13" text-anchor="middle" fill="#000000">8 kA</text>
+<line x1="1165.72" y1="456" x2="1165.72" y2="464" stroke="#000000" stroke-width="1"/>
+<text x="1165.72" y="482" font-size="13" text-anchor="middle" fill="#000000">8.5 kA</text>
+<line x1="234.28" y1="60" x2="234.28" y2="460" stroke="#d4d4d8" stroke-width="0.5" opacity="0.5"/>
+<line x1="467.14" y1="60" x2="467.14" y2="460" stroke="#d4d4d8" stroke-width="0.5" opacity="0.5"/>
+<line x1="700" y1="60" x2="700" y2="460" stroke="#d4d4d8" stroke-width="0.5" opacity="0.5"/>
+<line x1="932.86" y1="60" x2="932.86" y2="460" stroke="#d4d4d8" stroke-width="0.5" opacity="0.5"/>
+<line x1="1165.72" y1="60" x2="1165.72" y2="460" stroke="#d4d4d8" stroke-width="0.5" opacity="0.5"/>
+<line data-role="criterion-bar" x1="467.14" y1="260" x2="793.1440000000005" y2="260" stroke="#0f766e" stroke-width="6" stroke-linecap="butt" opacity="0.9"/>
+<circle data-role="criterion" cx="467.14" cy="260" r="6" fill="#0f766e"/>
+<text data-role="criterion-value" x="467.14" y="252" font-size="13" text-anchor="middle" font-weight="600" fill="#0f766e">7 kA</text>
+<circle data-role="margin" cx="793.1440000000005" cy="260" r="6" fill="#ffffff" stroke="#0f766e" stroke-width="2"/>
+<text data-role="margin-value" x="793.1440000000005" y="282" font-size="13" text-anchor="middle" fill="#1f2937">10%</text>
+<g data-role="arrow" transform="translate(807.1440000000005, 260)">
+      <line x1="0" y1="0" x2="10" y2="0" stroke="#0f766e" stroke-width="1.5" opacity="0.85"/>
+      <polyline points="6,-3 10,0 6,3" fill="none" stroke="#0f766e" stroke-width="1.5"/>
+    </g>
+<line data-role="leader" x1="467.14" y1="260" x2="222.28" y2="260" stroke="#cdd2d8" stroke-width="0.6"/>
+<circle data-role="leader-end" cx="222.28" cy="260" r="1.5" fill="#cdd2d8"/>
+<text data-role="criterion-label" x="222.28" y="264" font-size="14" text-anchor="end" fill="#1f2937">High emergency load</text>
+<line data-role="criterion-bar" x1="560.2840000000001" y1="82" x2="932.86" y2="82" stroke="#1d4ed8" stroke-width="6" stroke-linecap="butt" opacity="0.9"/>
+<circle data-role="criterion" cx="932.86" cy="82" r="6" fill="#1d4ed8"/>
+<text data-role="criterion-value" x="932.86" y="74" font-size="13" text-anchor="middle" font-weight="600" fill="#1d4ed8">8 kA</text>
+<circle data-role="margin" cx="560.2840000000001" cy="82" r="6" fill="#ffffff" stroke="#1d4ed8" stroke-width="2"/>
+<text data-role="margin-value" x="560.2840000000001" y="104" font-size="13" text-anchor="middle" fill="#1f2937">10%</text>
+<g data-role="arrow" transform="translate(546.2840000000001, 82)">
+      <line x1="0" y1="0" x2="-10" y2="0" stroke="#1d4ed8" stroke-width="1.5" opacity="0.85"/>
+      <polyline points="-6,-3 -10,0 -6,3" fill="none" stroke="#1d4ed8" stroke-width="1.5"/>
+    </g>
+<line data-role="leader" x1="1177.72" y1="82" x2="932.86" y2="82" stroke="#cdd2d8" stroke-width="0.6"/>
+<circle data-role="leader-end" cx="932.86" cy="82" r="1.5" fill="#cdd2d8"/>
+<text data-role="criterion-label" x="1177.72" y="86" font-size="14" text-anchor="start" fill="#1f2937">Low minimum fault</text>
+<rect x="560" y="488" width="280" height="22" rx="3" fill="#b45309" opacity="0.18"/>
+<text x="700" y="504" font-size="14" font-weight="600" fill="#b45309" text-anchor="middle">NO RECOMMENDED SETTING</text>
+<text x="700" y="526" font-size="13" fill="#1f2937" text-anchor="middle">conflict 500000 A</text>
+</svg>

@@ -1,0 +1,21 @@
+# Sample 02 — Vertical orientation
+#
+# Same feeder story drawn vertically. Both orientations share the
+# same criterion, margin, direction and status semantics.
+
+diagram "Vertical feeder" {
+  orientation vertical
+  voltage 11 kV
+  ct 400/1 A
+  show current, mva, secondary
+  view report
+  scale linear
+  range auto
+
+  below "Maximum load" must 3.5 kA
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum 2-phase fault" must 8 kA margin 10%
+  above "Minimum 3-phase fault" must 12 kA margin 10%
+
+  selected "Selected setting" midpoint step 0.05 kA
+}

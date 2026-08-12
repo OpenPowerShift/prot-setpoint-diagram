@@ -1,0 +1,11 @@
+diagram "Low selection test" {
+  voltage 33 kV
+  scale linear
+  range auto
+
+  below "Maximum load" must 3.5 kA
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum fault" must 8 kA margin 10%
+
+  selected "Setting" low step 0.3 kA
+}

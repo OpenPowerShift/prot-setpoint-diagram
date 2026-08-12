@@ -1,0 +1,34 @@
+document        = diagram, EOF ;
+diagram         = "diagram", string, "{", { statement }, "}" ;
+statement       = orientation | voltage | ct | show | view | scale | range
+                | word | style | constraint | selection ;
+orientation     = "orientation", ( "horizontal" | "vertical" ) ;
+voltage         = "voltage", expression, "kV" ;
+ct              = "ct", number, "/", number, "A" ;
+show            = "show", display_quantity, { ",", display_quantity } ;
+display_quantity= "entered" | "current" | "mva" | "secondary" ;
+view            = "view", ( "report" | "compact" | "rail" ) ;
+scale           = "scale", ( "linear" | "log" | "indicative" | "auto" ) ;
+range           = "range", ( "auto" | "all" | "focus" | quantity, "to", quantity ) ;
+word            = "word", word_name, string ;
+word_name       = "do-not-set" | "caution" | "recommended" | "selected"
+                | "no-recommended" | "no-compliant" ;
+style           = "style", style_property, style_value ;
+constraint      = direction, string, requirement, quantity, [ margin ] ;
+direction       = "above" | "below" ;
+requirement     = "must" | "should" ;
+margin          = "margin", ( percentage | quantity ) ;
+selection       = "selected", string, ( quantity
+                                | "midpoint", [ step ]
+                                | "low",      [ step ]
+                                | "high",     [ step ]
+                                | "none" ) ;
+step            = "step", quantity ;
+quantity        = expression, unit ;
+percentage      = expression, "%" ;
+expression      = factor, { ( "*" | "/" ), factor } ;
+factor          = number | "(", expression, ")" ;
+number          = digit, { digit }, [ ".", digit, { digit } ] ;
+unit            = "A" | "kA" | "kVA" | "MVA" ;
+string          = '"', { character_except_quote_or_newline }, '"' ;
+comment         = "#", { character_except_newline } ;

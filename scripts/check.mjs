@@ -1,0 +1,16 @@
+import { chromium } from '@playwright/test';
+const b = await chromium.launch();
+const p = await b.newPage();
+p.on('console', m => console.log('console', m.type(), m.text()));
+p.on('pageerror', e => console.log('pageerror', e.message));
+await p.goto('http://127.0.0.1:5180/', { waitUntil: 'networkidle' });
+const html = await p.content();
+console.log('html length:', html.length);
+console.log('html head:');
+console.log(html.slice(0, 3000));
+console.log('---');
+const editorHTML = await p.evaluate(() => document.querySelector('psdl-editor')?.outerHTML?.slice(0, 500));
+console.log('editor:', editorHTML);
+const appHTML = await p.evaluate(() => document.querySelector('psdl-app')?.outerHTML?.slice(0, 2000));
+console.log('app:', appHTML);
+await b.close();

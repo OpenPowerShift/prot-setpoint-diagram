@@ -1,0 +1,561 @@
+= Protection Setting Diagram Language (PSDL)
+:revnumber: 1.0-draft
+:toc: left
+:sectnums:
+:imagesdir: images
+
+== Status
+
+This document is the implementation-ready specification for Protection Setting Diagram Language (PSDL).
+PSDL describes scalar setting-selection diagrams used in protection settings reports. It represents load, fault and other engineering criteria; percentage or absolute margins; a selected setting; compliance status; and a compact publication-quality diagram.
+
+The processor pipeline is:
+
+. parse source into an AST with source locations;
+. resolve expressions, units, margins and conversions;
+. validate structure and engineering consistency;
+. analyse feasible intervals and status;
+. lay out labels and markers without overlap; and
+. render self-contained SVG, with optional PNG or PDF export.
+
+== Design principles
+
+* The language is line-oriented and intentionally small.
+* Authors state engineering intent; renderers determine geometry.
+* A filled dot represents a criterion and an open dot represents its margin-adjusted boundary.
+* A short arrow next to the open dot points towards acceptable selected values.
+* Lower criteria are normally labelled on the left; upper criteria are normally labelled on the right.
+* Pale leaders associate names with marker pairs without carrying engineering meaning.
+* Units are shown on criterion values, selected values and axis ticks.
+* Colour reinforces meaning but never carries meaning alone.
+* Autorange is the default and does not force zero onto a linear axis.
+
+== Complete introductory example
+
+[source,psdl]
+----
+include::examples/feeder-setting.psdl[]
+----
+
+image::example-report-horizontal.svg[Feeder setting report view,100%]
+
+== Language overview
+
+[source,psdl]
+----
+diagram "Feeder setting" {
+  orientation horizontal
+  voltage 33 kV
+  show current, mva
+  scale auto
+  range auto
+
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum 2-phase fault" must 8 kA margin 10%
+
+  selected "Selected setting" midpoint step 0.05 kA
+}
+----
+
+A document MUST contain exactly one `diagram` block.
+Statements are terminated by a newline or `}`. Semicolons are not used.
+A line comment starts with `#` and continues to the end of the line.
+Keywords and units are case-sensitive.
+
+== Criterion semantics
+
+=== `below`
+
+`below` means the criterion is expected below the selected setting. The selected setting must therefore be greater than or equal to the effective boundary.
+
+[source,psdl]
+----
+below "Emergency load" must 5 kA margin 10%
+----
+
+For a percentage margin, the effective boundary is:
+
+----
+effective = value * (1 + margin / 100)
+----
+
+The example resolves to `5.5 kA`.
+
+=== `above`
+
+`above` means the criterion is expected above the selected setting. The selected setting must therefore be less than or equal to the effective boundary.
+
+[source,psdl]
+----
+above "Minimum fault" must 12 kA margin 10%
+----
+
+For a percentage margin, the effective boundary is:
+
+----
+effective = value * (1 - margin / 100)
+----
+
+The example resolves to `10.8 kA`.
+
+=== Requirement levels
+
+`must`:: Hard engineering criterion. Crossing the original criterion produces `DO NOT SET` status and an error diagnostic.
+`should`:: Advisory criterion. Crossing the criterion produces `CAUTION` status and a warning diagnostic.
+
+A margin attached to `must` defines the preferred boundary inside the mandatory criterion. Crossing the margin but not the original `must` criterion produces `CAUTION`.
+A margin attached to `should` defines a more conservative preferred boundary; crossing either the margin or the advisory criterion remains `CAUTION`.
+
+=== Absolute margins
+
+A margin MAY be an absolute compatible quantity:
+
+[source,psdl]
+----
+below "Emergency load" must 5 kA margin 0.5 kA
+above "Minimum fault" must 12 kA margin 1.2 kA
+----
+
+For `below`, the absolute margin is added. For `above`, it is subtracted.
+A margin MUST be non-negative and MUST be less than 100% when used with `above`.
+
+== Intervals and status
+
+The processor converts all criteria in one diagram to the axis quantity.
+
+[source,text]
+----
+mandatory_lower = maximum of all below/must original values
+mandatory_upper = minimum of all above/must original values
+
+preferred_lower = maximum of:
+  all below/should original values
+  all below margin-adjusted values
+
+preferred_upper = minimum of:
+  all above/should original values
+  all above margin-adjusted values
+----
+
+Unbounded sides use negative or positive infinity internally.
+
+=== Status order
+
+`RECOMMENDED`:: Selected value lies inside the preferred interval.
+`CAUTION`:: Selected value lies outside the preferred interval but inside every mandatory original criterion.
+`DO NOT SET`:: Selected value crosses at least one mandatory original criterion.
+`NO RECOMMENDED SETTING`:: Preferred lower exceeds preferred upper, but mandatory lower does not exceed mandatory upper.
+`NO COMPLIANT SETTING`:: Mandatory lower exceeds mandatory upper.
+
+Status words are presentation labels and MAY be customised. Their semantics do not change.
+
+=== Conflicting preferred constraints
+
+image::example-preferred-conflict.svg[Preferred constraints conflict,100%]
+
+When the preferred interval is empty but the mandatory interval exists:
+
+* the renderer MUST show `NO RECOMMENDED SETTING`;
+* the crossed preferred boundaries MUST be visible;
+* the conflict width and percentage MUST be reported;
+* the renderer MUST NOT show a normal automatic selected marker; and
+* an explicit user-selected value MAY be shown with `CAUTION` status.
+
+The conflict percentage is:
+
+----
+(preferred_lower - preferred_upper) / preferred_upper * 100
+----
+
+=== Conflicting mandatory constraints
+
+image::example-mandatory-conflict.svg[Mandatory constraints conflict,100%]
+
+When the mandatory interval is empty:
+
+* the renderer MUST show `NO COMPLIANT SETTING`;
+* no automatic selected value may be generated;
+* the two controlling mandatory criteria MUST be identified; and
+* the absolute and percentage conflict MUST be reported.
+
+== Selected value
+
+The selected statement has five forms.
+
+[source,psdl]
+----
+selected "Selected setting" 6.5 kA
+selected "Selected setting" 200 MVA
+selected "Selected setting" midpoint
+selected "Selected setting" midpoint step 0.05 kA
+selected "Selected setting" low
+selected "Selected setting" low step 0.05 kA
+selected "Selected setting" high
+selected "Selected setting" high step 0.05 kA
+selected "Selected setting" none
+----
+
+* A literal quantity is taken at face value. The unit may be `A`, `kA`, `kVA` or `MVA`. When the value is in `kVA` or `MVA` the `voltage` statement is REQUIRED and the renderer converts to amps. A quantity that lands outside every `must` original criterion is reported as `DO NOT SET` and emits a `PSDL109_SELECTED_OUTSIDE_MUST` diagnostic.
+* `midpoint` selects the midpoint of the finite preferred interval. If the preferred interval is unbounded or empty, midpoint selection fails and emits `PSDL111_MIDPOINT_UNAVAILABLE`.
+* `low` selects the *lowest* compliant setting: it equals `mandatoryInterval.minimum` (the highest `must below` original) rounded UP to the next multiple of `step`. `low` fails with `PSDL110_MANDATORY_INTERVAL_EMPTY` when the mandatory interval is empty. The result sits on the lower edge of the mandatory interval, so it is usually outside the preferred interval — `low` selections are almost always `CAUTION` and the renderer reports the percentage above the preferred lower bound.
+* `high` is the dual of `low`: it equals `mandatoryInterval.maximum` (the lowest `must above` original) rounded DOWN to the previous multiple of `step`. Same diagnostics and same status behaviour. Use `high` when the engineer wants the *highest possible* compliant setting — the relay will be the most sensitive, but still clear the must-above criteria.
+* `step` rounds the chosen value to the nearest settable increment, with exact ties rounded away from zero. The unit must be `A` or `kA`. A `step` value that is not positive emits `PSDL112_STEP_INVALID`. For `low` and `high` the rounding direction is fixed (up for `low`, down for `high`); for `midpoint` it follows the nearest-grid rule.
+* `none` requests analysis without selection and is useful for conflict diagrams.
+
+== Selected-setting percentages
+
+For each controlling boundary `B` and selected value `S`, the renderer SHOULD report:
+
+----
+ratio_percent = S / B * 100
+clearance_percent = abs(S - B) / B * 100
+----
+
+The label MUST state the denominator and direction, for example:
+
+----
+115% of 5.5 kA lower boundary · 15% above
+88% of 7.2 kA upper boundary · 12% below
+----
+
+When a boundary is infringed, the controlling infringement is shown first:
+
+----
+CAUTION · 105.6% of 7.2 kA upper boundary · 5.6% above
+----
+
+Non-controlling, remote percentages SHOULD be suppressed to avoid noise.
+
+== Quantities and expressions
+
+Supported units are:
+
+`A`, `kA`:: RMS current.
+`kVA`, `MVA`:: Three-phase apparent power.
+`kV`:: Line-to-line voltage, allowed only in `voltage`.
+`%`:: Margin only.
+
+Expressions support positive decimal numbers, parentheses, multiplication and division:
+
+[source,psdl]
+----
+above "Minimum fault" must 1.1 * 10 kA margin 10%
+below "Load" must (24 / 1.1) MVA margin 0.5 MVA
+----
+
+Addition, subtraction, variables, functions and implicit multiplication are not part of version 1.0.
+Division by zero is an error.
+
+== Conversions
+
+For three-phase apparent power at line-to-line voltage:
+
+----
+I_A = S_MVA * 1000 / (sqrt(3) * V_kV)
+S_MVA = sqrt(3) * V_kV * I_A / 1000
+----
+
+For `ct P/S A`:
+
+----
+I_secondary = I_primary * S / P
+I_primary   = I_secondary * P / S
+----
+
+`voltage` is REQUIRED when current and MVA values must be compared.
+`ct` is REQUIRED when secondary current is requested.
+The processor MUST preserve entered values and SHOULD return calculated primary current, secondary current and MVA where possible.
+
+== Diagram statements
+
+=== Orientation
+
+[source,psdl]
+----
+orientation horizontal
+orientation vertical
+----
+
+Default: `horizontal`.
+Both orientations MUST use the same criterion, margin, direction and status semantics.
+
+image::example-report-vertical.svg[Vertical feeder setting view,65%]
+
+=== Displayed quantities
+
+[source,psdl]
+----
+show entered
+show current, mva
+show current, secondary
+----
+
+`entered` preserves the authored quantity as the primary label.
+`current` shows equivalent primary current.
+`mva` shows equivalent MVA.
+`secondary` shows CT secondary current.
+The first listed quantity is primary. Additional quantities are visually secondary.
+
+=== View
+
+[source,psdl]
+----
+view report
+view compact
+view rail
+----
+
+`report`:: Separate criterion rows, subtle status zones, connection leaders and full status detail.
+`compact`:: Near labels, short leaders, no mandatory zone shading, and one-line status summary.
+`rail`:: One value rail, intended for stage summaries. Only controlling local arrows and percentages are prominent.
+
+Default: `compact`.
+
+image::example-compact-horizontal.svg[Compact horizontal view,100%]
+
+=== Scale
+
+[source,psdl]
+----
+scale linear
+scale log
+scale indicative
+scale auto
+----
+
+`linear`:: Calibrated linear position.
+`log`:: Calibrated base-10 logarithmic position. Every plotted value MUST be positive.
+`indicative`:: Ordered, non-calibrated spacing with minimum marker separation. The renderer MUST show `INDICATIVE SPACING — NOT TO SCALE`.
+`auto`:: Select linear unless `maximum positive value / minimum positive value >= 20`, then select logarithmic. The selected scale MUST be labelled.
+
+Default: `auto`.
+
+image::example-log-horizontal.svg[Logarithmic wide-range view,100%]
+
+=== Range
+
+[source,psdl]
+----
+range auto
+range all
+range focus
+range 3 kA to 13 kA
+----
+
+`auto`:: Include every plotted criterion, margin and selected value with approximately 8% padding and nice outward rounding.
+`all`:: Synonym for `auto`, retained to emphasise inclusion of all values.
+`focus`:: For conflict status, focus on controlling boundaries. Otherwise focus on controlling preferred boundaries and the selected value; remote values use explicit off-range markers.
+`quantity to quantity`:: Authoritative explicit limits.
+
+Default: `auto`.
+Zero is not forced onto a linear axis.
+A renderer MUST NOT omit a value without an explicit off-range marker containing the exact value and unit.
+
+== Custom words
+
+[source,psdl]
+----
+word do-not-set "PROHIBITED"
+word caution "REVIEW"
+word recommended "PREFERRED"
+word selected "SETTING"
+word no-recommended "NO PREFERRED SETTING"
+word no-compliant "NO VALID SETTING"
+----
+
+Each word statement MAY occur once. The default English words are the keyword converted to uppercase with spaces.
+An empty string is invalid.
+
+== Styling
+
+Core PSDL keeps styling compact. The following optional properties are portable:
+
+[source,psdl]
+----
+style theme print
+style palette accessible
+style zones subtle
+style connections pale
+----
+
+`theme` values: `light`, `dark`, `print`, `monochrome`.
+`palette` values: `accessible`, `default`, `high-contrast`, `monochrome`.
+`zones` values: `off`, `subtle`, `full`.
+`connections` values: `off`, `pale`, `rows`.
+
+Defaults are `print`, `accessible`, `subtle` for report view, and `pale` connections.
+An implementation MAY add namespaced style extensions. Unknown unnamespaced style properties are errors.
+
+== Normative visual encoding
+
+* Criterion: filled circle.
+* Margin-adjusted boundary: open circle with coloured outline.
+* Criterion-to-margin distance: thick coloured segment.
+* Acceptable direction: short arrow immediately outside the open circle.
+* Selected value: orange or otherwise high-contrast line and filled marker.
+* Lower criterion family: teal in the accessible palette.
+* Upper criterion family: blue in the accessible palette.
+* Name association: pale leader with no arrowhead.
+* Preferred conflict: pale red conflict band and explicit text.
+* Mandatory conflict: stronger red conflict band and no selected marker.
+
+A renderer MUST retain marker fill, arrow direction, line form and text labels in monochrome output.
+
+== Layout and collision avoidance
+
+The renderer MUST complete layout before emitting final SVG geometry.
+The following algorithm is normative in outcome and informative in implementation detail:
+
+. Compute marker positions from the resolved scale.
+. Allocate one row per criterion in report view.
+. Attempt near-label placement next to the marker pair.
+. Measure text bounds using the actual font metrics.
+. If a label collides, move it vertically within its row and extend a short pale leader.
+. If the leader would exceed 25% of plot width, move the label to the appropriate outside gutter.
+. If gutter leaders are difficult to trace, use alternating pale row strips.
+. Stagger numeric labels above and below markers before moving criterion names.
+. Combine identical positions into one marker with `×N` and list labels in the gutter.
+. Never allow a label to overlap another label, marker, selected line, status callout or plot boundary.
+. Never allow a pale association leader to cross another criterion row.
+
+The plot MUST reserve asymmetric gutters based on measured labels rather than fixed equal margins.
+The renderer SHOULD keep five to eight major ticks and MUST include units on visible ticks.
+
+== Autorange
+
+For linear auto range:
+
+----
+minimum = min(all original values, margins, selected)
+maximum = max(all original values, margins, selected)
+span = maximum - minimum
+raw_min = minimum - 0.08 * span
+raw_max = maximum + 0.08 * span
+----
+
+The renderer rounds outward using a nice step from `1, 2, 2.5, 5 × 10^n` and targets five to eight major ticks.
+When all values are equal, a symmetric non-zero range is created around the value.
+
+For log auto range, limits round outward to useful decade or partial-decade ticks.
+For conflict focus range, the controlling interval receives at least 50% of its width as padding, subject to a minimum readable span.
+
+== Grammar
+
+[source,ebnf]
+----
+include::grammar/psdl.ebnf[]
+----
+
+Whitespace separates tokens. Newlines terminate statements except inside parentheses.
+A parser MAY accept semicolons as a non-normative compatibility extension but formatters MUST omit them.
+
+== Validation diagnostics
+
+Each diagnostic contains a stable code, severity, message and source span.
+
+=== Parse and structure errors
+
+`PSDL001_UNKNOWN_STATEMENT`:: Unknown statement or keyword.
+`PSDL002_DUPLICATE_SINGLETON`:: Duplicate orientation, voltage, CT, view, scale or range.
+`PSDL003_STRING_REQUIRED`:: Missing or invalid quoted label.
+`PSDL004_EXPRESSION_INVALID`:: Malformed arithmetic expression.
+`PSDL005_UNIT_UNKNOWN`:: Unsupported unit.
+
+=== Engineering errors
+
+`PSDL101_NO_CONSTRAINT`:: Diagram contains no criteria.
+`PSDL102_VALUE_NEGATIVE`:: Criterion, selection or absolute margin is negative.
+`PSDL103_MARGIN_PERCENT_RANGE`:: Percentage margin is negative or an above margin is at least 100%.
+`PSDL104_DIVIDE_BY_ZERO`:: Expression divides by zero.
+`PSDL105_VOLTAGE_REQUIRED`:: Current/MVA conversion required without voltage.
+`PSDL106_CT_INVALID`:: CT ratio side is not positive.
+`PSDL107_UNIT_INCOMPATIBLE`:: Quantity cannot be converted to the axis quantity.
+`PSDL108_LOG_NONPOSITIVE`:: Logarithmic scale contains a non-positive value.
+`PSDL109_SELECTED_OUTSIDE_MUST`:: Selected value crosses mandatory original criterion.
+`PSDL110_MANDATORY_INTERVAL_EMPTY`:: No compliant setting exists.
+`PSDL111_MIDPOINT_UNAVAILABLE`:: Preferred interval is empty or unbounded.
+`PSDL112_STEP_INVALID`:: Selection step is non-positive or incompatible.
+
+=== Warnings
+
+`PSDL201_SELECTED_OUTSIDE_PREFERRED`:: Selected value is cautionary.
+`PSDL202_PREFERRED_INTERVAL_EMPTY`:: No recommended setting exists.
+`PSDL203_LABEL_DENSE`:: Renderer required gutter or row-strip fallback.
+`PSDL204_OFF_RANGE_MARKER`:: Focus range omitted a remote value from calibrated plot area.
+`PSDL205_AUTO_LOG`:: Auto scale selected logarithmic presentation.
+
+=== Informational diagnostics
+
+`PSDL301_SELECTED_DEFAULTED`:: Midpoint selection applied.
+`PSDL302_SELECTION_SNAPPED`:: Selected value rounded to a step.
+`PSDL303_RANGE_AUTOFIT`:: Axis limits derived.
+`PSDL304_CONVERSION_APPLIED`:: Display quantity differs from entered quantity.
+`PSDL305_LOW_SELECTED`:: Low selection applied — the chosen value is the lowest compliant setting (`mandatoryInterval.minimum` rounded up to `step`).
+`PSDL306_HIGH_SELECTED`:: High selection applied — the chosen value is the highest compliant setting (`mandatoryInterval.maximum` rounded down to `step`).
+
+== Resolved result model
+
+A processor SHOULD return a machine-readable object equivalent to:
+
+[source,json]
+----
+{
+  "title": "Feeder setting",
+  "status": "recommended",
+  "axis": {
+    "quantity": "current",
+    "unit": "kA",
+    "scale": "linear",
+    "minimum": 3.0,
+    "maximum": 13.0
+  },
+  "mandatoryInterval": { "minimum": 5.0, "maximum": 8.0 },
+  "preferredInterval": { "minimum": 5.5, "maximum": 7.2 },
+  "selected": {
+    "label": "Selected setting",
+    "value": 6.35,
+    "unit": "kA",
+    "defaulted": true,
+    "primary_A": 6350,
+    "secondary_A": 10.583,
+    "MVA": 362.9
+  },
+  "controlling": {
+    "lower": { "label": "Emergency load", "boundary": 5.5 },
+    "upper": { "label": "Minimum 2-phase fault", "boundary": 7.2 }
+  },
+  "diagnostics": []
+}
+----
+
+Calculated values are rounded for display only; implementations MUST retain sufficient internal precision for validation.
+
+== Conformance requirements
+
+A conforming processor MUST:
+
+* parse the normative grammar;
+* evaluate multiplication, division and parentheses deterministically;
+* apply direction-specific margin calculations;
+* derive mandatory and preferred intervals;
+* implement all five statuses;
+* reject automatic selection when no valid interval exists;
+* implement horizontal and vertical rendering;
+* implement linear and logarithmic calibrated scales;
+* implement auto range without forcing zero;
+* render criterion and margin dots on the same row or column;
+* render local direction arrows beside margin dots;
+* avoid overlaps using measured text bounds; and
+* emit stable diagnostics.
+
+A conforming report renderer SHOULD additionally implement compact and rail views, indicative scale, PNG export, conversion labels and accessible themes.
+
+== Package contents
+
+The self-contained package contains:
+
+* `spec.adoc` — this specification;
+* `images/*.svg` and `images/*.png` — all referenced figures;
+* `examples/*.psdl` — executable examples;
+* `grammar/psdl.ebnf` — extracted grammar; and
+* `README.adoc` — rendering and package guidance.

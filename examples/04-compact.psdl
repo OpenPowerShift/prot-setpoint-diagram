@@ -1,0 +1,22 @@
+# Sample 04 — Compact view
+#
+# Compact view: near labels, short leaders, no mandatory zone shading,
+# one-line status summary. Compare against the report view of the
+# same study.
+
+diagram "Compact view" {
+  orientation horizontal
+  voltage 33 kV
+  ct 600/1 A
+  show current, mva
+  view compact
+  scale auto
+  range auto
+
+  below "Maximum load" must 3.5 kA
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum 2-phase fault" must 8 kA margin 10%
+  above "Minimum 3-phase fault" must 12 kA margin 10%
+
+  selected "Selected setting" midpoint step 0.05 kA
+}

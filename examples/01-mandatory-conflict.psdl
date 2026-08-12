@@ -1,0 +1,17 @@
+# Sample 01 — Mandatory conflict
+#
+# Two lower-side constraints that themselves conflict: the higher load
+# is greater than the lower maximum. The diagram shows the conflict
+# band (no compliant setting) and identifies the controlling pair.
+
+diagram "Mandatory conflict" {
+  orientation horizontal
+  scale linear
+  range focus
+
+  below "Higher emergency load" must 9 kA
+  below "Lower maximum load" must 6 kA
+  above "Minimum fault" must 5 kA
+
+  selected "Selected setting" none
+}

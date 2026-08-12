@@ -1,0 +1,8 @@
+diagram "Wide-range setting" {
+  orientation horizontal
+  scale log
+  range auto
+  below "Emergency load" must 0.35 kA margin 10%
+  above "Minimum fault" must 50 kA margin 10%
+  selected "Selected setting" 1 kA
+}

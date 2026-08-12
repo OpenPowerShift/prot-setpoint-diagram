@@ -1,0 +1,130 @@
+= PSDL tutorial
+:toc: left
+:icons: font
+:source-highlighter: rouge
+
+This walkthrough builds a PSDL diagram from the simplest case — a single constraint — and adds one idea at a time. By the end you will have written the same five-line study that ships in the spec's `examples/feeder-setting.psdl`, and you will have seen every status the language can produce.
+
+Every example in this tutorial is a complete `.psdl` file. Paste any of them into the playground editor on the left of this page and the diagram on the right will redraw as you type.
+
+== The smallest meaningful diagram
+
+A PSDL document contains exactly one `diagram` block. Inside that block, you list the constraints the selected setting has to satisfy and the setting itself. The language is line-oriented: each statement is a single line, terminated by a newline. There are no semicolons and no braces except the one that opens and closes the diagram body.
+
+[source,psdl]
+----
+diagram "First try" {
+  below "Maximum load" must 3.5 kA
+}
+----
+
+That is a complete file. It says: a chosen setting has to be *at or above* 3.5 kA, because the engineering intent — the criterion labelled "Maximum load" — is that the relay's pick-up must clear the highest load the feeder is ever expected to carry.
+
+The renderer draws the constraint as a filled teal circle, places it on a one-dimensional current axis, and leaves the right half of the axis open. Anywhere on the right of the dot is acceptable. There is no selected value yet, so the diagram is undecided — it is a statement of *constraint*, not a *choice*.
+
+== Adding an upper bound
+
+A setting that is "at or above the maximum load" with no upper bound is silly — a relay set to clear 100 kA will not protect anything. Add an upper constraint:
+
+[source,psdl]
+----
+diagram "Now bounded" {
+  below "Maximum load" must 3.5 kA
+  above "Minimum fault" must 8 kA
+}
+----
+
+The renderer now draws two families of markers. Lower-side criteria are on the left half of the plot, upper-side on the right half. The acceptable region is the gap between them. There is still no selected value, so the status is meaningless — the diagram is asking a question, not answering one.
+
+== The five statuses
+
+PSDL distinguishes five engineering situations, and the renderer colours the answer at the bottom of the plot:
+
+* `RECOMMENDED` — chosen value sits inside the *preferred* interval, comfortably clear of every criterion.
+* `CAUTION` — chosen value is inside the *mandatory* interval but not inside the preferred one. The setting is compliant but tight.
+* `DO NOT SET` — chosen value crosses a mandatory original criterion. The setting is not compliant.
+* `NO RECOMMENDED SETTING` — preferred bounds cross each other. There is no value the engineer would want to choose, but the mandatory interval is still open. The conflict is reported with the magnitude of the disagreement.
+* `NO COMPLIANT SETTING` — mandatory bounds cross each other. There is no compliant setting at all; the engineer must revise the criteria.
+
+== Adding a margin
+
+A margin attached to a `must` defines a *preferred* boundary inside the mandatory one. The selected value should sit between the margin and the original — the margin is the safety the engineer wants in normal operation; the original is the hard line you do not cross.
+
+[source,psdl]
+----
+diagram "With margin" {
+  below "Maximum load" must 3.5 kA
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum fault" must 8 kA margin 10%
+
+  selected "Setting" midpoint
+}
+----
+
+The renderer now draws the margin boundary as an *open* circle connected to the original by a thick coloured bar, and points a short arrow outside the open circle in the direction the engineer wants the setting to land. For `below`, that direction is *upwards* (right). For `above`, it is *downwards* (left).
+
+The `selected` statement with `midpoint` finds the centre of the preferred interval and uses that as the setting. The `midpoint` form is the workhorse — it is what most engineering choices look like before they have been dialled to a real step.
+
+== Snapping to a step
+
+Relay stages come in fixed increments — 0.05 kA, 50 A, whatever the device supports. The `step` clause rounds the chosen value to the nearest settable increment.
+
+[source,psdl]
+----
+diagram "Snapped" {
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum fault"   must 8 kA margin 10%
+
+  selected "Setting" midpoint step 0.05 kA
+}
+----
+
+If the midpoint of the preferred interval lands at 6.35 kA and the step is 0.05 kA, the setting is already on the grid and no rounding happens. If the midpoint were 6.34 kA, the step would round it to 6.35 kA — towards the nearest grid line. The renderer emits a `PSDL302_SELECTION_SNAPPED` diagnostic so the engineer knows the value they got is not the exact centre of the preferred interval.
+
+== Conversions — voltage, current, MVA
+
+Most relays are specified in primary amps. The settings report often wants the answer in MVA as well. `voltage` and `ct` are how the language does those conversions.
+
+[source,psdl]
+----
+diagram "With conversions" {
+  voltage 33 kV
+  ct 600/1 A
+  show current, mva, secondary
+
+  below "Maximum load" must 3.5 kA
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum fault" must 8 kA margin 10%
+
+  selected "Setting" midpoint step 0.05 kA
+}
+----
+
+With `voltage 33 kV`, an entered value of 5 kA primary current is equivalent to 285.8 MVA at the bus. With `ct 600/1`, the secondary current is `I_secondary = I_primary * 1/600`. The `show` statement asks the renderer to print all three forms below the diagram. The `PSDL304_CONVERSION_APPLIED` diagnostic tells the editor that a displayed value differs from the entered one — it is an information marker, not an error.
+
+== Mandatory and preferred intervals
+
+The processor combines every constraint on a single axis and works out two intervals. Both are derived, not declared:
+
+* `mandatoryInterval` is the gap between the highest `below/must` original value and the lowest `above/must` original value. There is no preferred side to this — it is the bounds the engineer refuses to cross.
+* `preferredInterval` is the gap between the highest *preferred* lower bound and the lowest *preferred* upper bound. Preferred bounds come from `should` original values and from every `must` margin, computed in the direction of the constraint.
+
+The selected value is then checked against both. The status is the closest one that the value fails.
+
+== A real study
+
+The intro example from the spec is a four-constraint feeder setting — maximum load, emergency load, two fault levels. Try it as a whole:
+
+[source,psdl]
+----
+include::../examples/feeder-setting.psdl[]
+----
+
+The playground's *Examples* dropdown has this loaded as the default.
+
+== What to read next
+
+* link:guide.html[The PSDL guide] — every statement in the language, with examples, one statement per section. Read this when you have a specific question.
+* link:reference.html[The PSDL reference] — the formal spec, generated from `spec/spec.adoc`. Read this when you need an exact definition of a behaviour.
+
+For most engineering work, the tutorial above plus the example picker is enough. The guide is the long-form digest you go back to once a week. The reference is the source of truth.

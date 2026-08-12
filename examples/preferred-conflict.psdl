@@ -1,0 +1,8 @@
+diagram "Preferred conflict" {
+  orientation horizontal
+  scale linear
+  range focus
+  below "High emergency load" must 7 kA margin 10%
+  above "Low minimum fault" must 8 kA margin 10%
+  selected "Selected setting" none
+}
