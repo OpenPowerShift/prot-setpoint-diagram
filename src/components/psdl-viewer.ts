@@ -16,11 +16,11 @@ export class PsdlViewer extends LitElement {
   @property({ type: Array }) display: { label: string; text: string }[] = [];
 
   override render() {
+    /* Title and scale are already shown once, by the app shell's pane
+     * header above this component — a second copy here (in a different
+     * order: "scale · title" vs. the shell's "title / scale") was pure
+     * duplication, not a second piece of information. */
     return html`
-      <div class="psdl-viewer-toolbar">
-        <span class="psdl-small">${this.scale}${this.diagramTitle ? ' · ' + this.diagramTitle : ''}</span>
-        <span class="psdl-spacer"></span>
-      </div>
       <div class="psdl-pane-host">${unsafeHTML(this.svg)}</div>
       ${this.summary()}
     `;

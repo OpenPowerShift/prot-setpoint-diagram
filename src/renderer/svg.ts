@@ -78,7 +78,15 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
   }
 
   const parts: string[] = [];
-  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${declareWidth} ${declareHeight}" data-orientation="${o}" data-status="${model.status}" data-title="${escapeAttr(model.title)}" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif">`);
+  /* width/height attributes give the SVG an intrinsic size, not just an
+   * aspect ratio. Without them a viewBox-only SVG has no natural size at
+   * all, so a plain `max-width:100%; height:auto` host style stretches
+   * it to fill whatever container it lands in — a 2-criterion diagram
+   * in a wide pane rendered at 1.8x its authored size, arbitrarily
+   * enlarging every label past legibility (and off the viewport, for
+   * the longest ones). With explicit dimensions, max-width:100% caps
+   * growth at the authored size and still shrinks on narrow viewports. */
+  parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${declareWidth}" height="${declareHeight}" viewBox="0 0 ${declareWidth} ${declareHeight}" data-orientation="${o}" data-status="${model.status}" data-title="${escapeAttr(model.title)}" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif">`);
   parts.push(`<rect x="0" y="0" width="${declareWidth}" height="${declareHeight}" fill="${theme.background}"/>`);
 
   /* Title + selected label above the plot */

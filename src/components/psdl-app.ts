@@ -62,6 +62,11 @@ export class PsdlApp extends LitElement {
   @state() private display: { label: string; text: string }[] = [];
   @state() private marks: Mark[] = [];
   @state() private guideOpen = false;
+  /* Tracks the theme as Lit state, not read from the DOM at render time:
+   * document.documentElement.dataset.theme is invisible to Lit's
+   * reactivity, so the toggle button's own label went stale after every
+   * click — it kept reading "Light" after switching to light theme. */
+  @state() private lightTheme = document.documentElement.dataset.theme === 'light';
 
   override connectedCallback(): void {
     super.connectedCallback();
@@ -122,10 +127,10 @@ export class PsdlApp extends LitElement {
 
   private toggleTheme(): void {
     const root = document.documentElement;
-    const theme = root.dataset.theme ?? '';
-    const next = theme === 'light' ? 'dark' : 'light';
+    const next = this.lightTheme ? 'dark' : 'light';
     if (next === 'dark') root.removeAttribute('data-theme');
     else root.dataset.theme = next;
+    this.lightTheme = next === 'light';
   }
 
   private downloadSvg(): void {
@@ -176,7 +181,7 @@ export class PsdlApp extends LitElement {
               ${EXAMPLES.map((ex) => html`<option value=${ex.id} ?selected=${this.activeExampleId === ex.id}>${ex.label}</option>`)}
             </select>
           </label>
-          <button class="psdl-btn" @click=${() => this.toggleTheme()}>${document.documentElement.dataset.theme === 'light' ? 'Dark' : 'Light'}</button>
+          <button class="psdl-btn" @click=${() => this.toggleTheme()}>${this.lightTheme ? 'Dark' : 'Light'}</button>
           <button class="psdl-btn" @click=${() => this.downloadSvg()}>Download SVG</button>
           <button class="psdl-btn" @click=${() => this.downloadPng()}>Download PNG</button>
           <button class="psdl-btn" @click=${() => { this.guideOpen = true; }}>Guide</button>
