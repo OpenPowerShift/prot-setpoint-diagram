@@ -33,6 +33,7 @@ export class PsdlViewer extends LitElement {
       'do-not-set': 'DO NOT SET',
       'no-recommended-setting': 'NO RECOMMENDED SETTING',
       'no-compliant-setting': 'NO COMPLIANT SETTING',
+      'no-selection': 'NO SETTING SELECTED',
     };
     const state = labels[this.status] ?? this.status;
     const cls = `is-${this.status}`;

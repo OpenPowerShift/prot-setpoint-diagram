@@ -702,16 +702,12 @@ function selectedLabelText(model: Resolved): string {
 /** State word, its colour, and the detail line — shared between the
  * horizontal footer callout and the vertical inline status text. */
 function statusText(model: Resolved, palette: { selected: string; caution: string; conflict: string }): { state: string; stateColor: string; detail: string } {
-  /* No setpoint means there is nothing to pass judgement on. The
-   * resolver still reports `recommended` in that case (status is only
-   * meaningful relative to a selection), but rendering a RECOMMENDED
-   * pill over a diagram with no selected value reads as "this setting
-   * was checked and approved" — the opposite of the truth. Report the
-   * compliant window instead, which is the useful answer for an
-   * analysis-only diagram (`selected "…" none`). */
-  const noSelection = !Number.isFinite(model.selection.value_A);
-  const isConflict = model.status === 'no-compliant-setting' || model.status === 'no-recommended-setting';
-  if (noSelection && !isConflict) {
+  /* `no-selection` isn't one of the spec's five normative statuses —
+   * see the Status type in model.ts. No setpoint means there is nothing
+   * to pass judgement on, so report the compliant window instead of a
+   * pass/fail word — the useful answer for an analysis-only diagram
+   * (`selected "…" none`). */
+  if (model.status === 'no-selection') {
     const p = model.preferredInterval;
     const m = model.mandatoryInterval;
     const range = (lo: number, hi: number) => {
@@ -734,6 +730,9 @@ function statusText(model: Resolved, palette: { selected: string; caution: strin
       case 'do-not-set': return w('do-not-set', 'Do not set');
       case 'no-recommended-setting': return w('no-recommended', 'No recommended setting');
       case 'no-compliant-setting': return w('no-compliant', 'No compliant setting');
+      /* 'no-selection' is handled by the early return above — excluded
+       * from this switch's type by that point, so TS already treats
+       * this as exhaustive without a case for it. */
     }
   })();
   const stateColor =

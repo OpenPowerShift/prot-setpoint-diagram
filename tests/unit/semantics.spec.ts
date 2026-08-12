@@ -100,6 +100,31 @@ describe('PSDL semantics — five statuses', () => {
     const { resolved } = process(src);
     expect(resolved!.status).toBe('no-compliant-setting');
   });
+
+  it('no-selection when a valid interval exists but nothing was selected', () => {
+    /* Regression: the resolver used to fall through to `recommended`
+     * here, which a renderer could only tell apart from a real approved
+     * setting by separately checking Number.isFinite(selection.value_A) —
+     * easy to miss, and exactly the bug that showed a RECOMMENDED pill
+     * over an analysis-only diagram with no setpoint at all. */
+    const src = `diagram "T" {
+      below "L" must 5 kA margin 10%
+      above "U" must 8 kA margin 10%
+      selected "S" none
+    }`;
+    const { resolved } = process(src);
+    expect(resolved!.status).toBe('no-selection');
+  });
+
+  it('no-selection when midpoint fails to resolve against an unbounded interval', () => {
+    const src = `diagram "T" {
+      below "L" must 5 kA margin 10%
+      selected "S" midpoint
+    }`;
+    const { resolved } = process(src);
+    expect(Number.isFinite(resolved!.selection.value_A)).toBe(false);
+    expect(resolved!.status).toBe('no-selection');
+  });
 });
 
 describe('PSDL semantics — preferred and mandatory intervals', () => {

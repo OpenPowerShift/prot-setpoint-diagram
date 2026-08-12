@@ -134,7 +134,16 @@ export type Status =
   | 'caution'
   | 'do-not-set'
   | 'no-recommended-setting'
-  | 'no-compliant-setting';
+  | 'no-compliant-setting'
+  /* Not one of the spec's five normative statuses — those are all
+   * defined relative to a selected value's position. `selected "…"
+   * none` (spec: "requests analysis without selection") and any
+   * selection that fails to resolve (e.g. midpoint against an
+   * unbounded preferred interval) have no such position, and reporting
+   * `recommended` for that case — which the resolver used to do, by
+   * falling through this function's default path — reads as "checked
+   * and approved" on a diagram with no setting at all. */
+  | 'no-selection';
 
 export interface Diagnostic {
   code: string;
@@ -955,7 +964,7 @@ function determineStatus(
     return 'no-recommended-setting';
   }
   if (selection.kind === 'none' || !Number.isFinite(selection.value_A)) {
-    return 'recommended'; /* status without selection is meaningless but still RECOMMENDED */
+    return 'no-selection';
   }
   if (selection.value_A < mandatory.minimum || selection.value_A > mandatory.maximum) {
     return 'do-not-set';
