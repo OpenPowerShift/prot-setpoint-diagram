@@ -108,7 +108,7 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
   parts.push(gridLines(model, axis, padL, padT, plotW, plotH, o, ticks, theme, leftGutter, rightGutter));
 
   const hasSelection = Number.isFinite(model.selection.value_A);
-  const selY = o === 'vertical' && hasSelection ? verticalY(model, axis, model.selection.value_A / 1000, padT, plotH) : null;
+  const selY = o === 'vertical' && hasSelection ? verticalYClamped(model, axis, model.selection.value_A / 1000, padT, plotH) : null;
 
   /* Vertical only: criterion values can sit numerically close together,
    * which on a calibrated axis crowds their labels against each other
@@ -117,7 +117,7 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
    * label (and its leader) from the marker's true position. */
   let vLabelY: number[] | null = null;
   if (o === 'vertical') {
-    const naturalY = model.constraints.map((c) => verticalY(model, axis, c.value_A / 1000, padT, plotH));
+    const naturalY = model.constraints.map((c) => verticalYClamped(model, axis, c.value_A / 1000, padT, plotH));
     const obstacle = selY !== null ? { top: selY - 26, bottom: selY + 20 + fs + 3 } : null;
     vLabelY = declutterVerticalLabels(naturalY, obstacle, fs + 5);
   }
@@ -533,29 +533,41 @@ function drawConstraint(
 
   if (o === 'vertical') {
     const markerX = verticalMarkerX(padL);
-    const yC = verticalY(model, axis, c.value_A / 1000, padT, plotH);
+    const critSide = axisClampSide(c.value_A / 1000, axis);
+    const yC = verticalYClamped(model, axis, c.value_A / 1000, padT, plotH);
+    const marginSide = c.boundary_A !== null && Number.isFinite(c.boundary_A) ? axisClampSide(c.boundary_A / 1000, axis) : null;
     const yM = c.boundary_A !== null && Number.isFinite(c.boundary_A)
-      ? verticalY(model, axis, c.boundary_A / 1000, padT, plotH)
+      ? verticalYClamped(model, axis, c.boundary_A / 1000, padT, plotH)
       : null;
 
     if (yM !== null) {
       const lo = Math.min(yC, yM);
       const hi = Math.max(yC, yM);
       out.push(`<line data-role="criterion-bar" x1="${markerX}" y1="${lo}" x2="${markerX}" y2="${hi}" stroke="${family}" stroke-width="6" stroke-linecap="butt" opacity="0.9"/>`);
-      /* Open (margin) dot drawn BEFORE the filled criterion dot: a small
-       * percentage margin on a log-scale axis can land the two centres
-       * only a couple of pixels apart, and the open dot's opaque fill
-       * would otherwise erase the filled one drawn under it. */
-      out.push(`<circle data-role="margin" cx="${markerX}" cy="${yM}" r="6" fill="${bg}" stroke="${family}" stroke-width="2"/>`);
+      if (marginSide !== null) {
+        out.push(offRangeTriangleV(markerX, yM, marginSide, family));
+      } else {
+        /* Open (margin) dot drawn BEFORE the filled criterion dot: a
+         * small percentage margin on a log-scale axis can land the two
+         * centres only a couple of pixels apart, and the open dot's
+         * opaque fill would otherwise erase the filled one drawn under
+         * it. */
+        out.push(`<circle data-role="margin" cx="${markerX}" cy="${yM}" r="6" fill="${bg}" stroke="${family}" stroke-width="2"/>`);
+      }
     }
 
-    /* filled dot = criterion */
-    out.push(`<circle data-role="criterion" cx="${markerX}" cy="${yC}" r="6" fill="${family}"/>`);
+    if (critSide !== null) {
+      out.push(offRangeTriangleV(markerX, yC, critSide, family));
+    } else {
+      out.push(`<circle data-role="criterion" cx="${markerX}" cy="${yC}" r="6" fill="${family}"/>`);
+    }
 
-    if (yM !== null) {
+    if (yM !== null && marginSide === null) {
       /* Arrow points toward acceptable values: for `below`, acceptable
        * values are higher, i.e. UP the vertical axis (smaller y); for
-       * `above`, acceptable values are lower, i.e. DOWN (larger y). */
+       * `above`, acceptable values are lower, i.e. DOWN (larger y).
+       * Skipped when the margin itself is off-range — its exact
+       * boundary position isn't on the visible axis to point from. */
       const arrowDir = c.direction === 'below' ? -1 : 1;
       const arrowStart = yM + arrowDir * 14;
       const arrowEnd = yM + arrowDir * 24;
@@ -586,9 +598,11 @@ function drawConstraint(
   const xL = padL + leftGutter;
   const xR = padL + plotW - rightGutter;
   const xRange = xR - xL;
-  const xC = xL + scalePos(model, axis, c.value_A / 1000, xRange);
+  const critSide = axisClampSide(c.value_A / 1000, axis);
+  const xC = critSide === 'low' ? xL : critSide === 'high' ? xR : xL + scalePos(model, axis, c.value_A / 1000, xRange);
+  const marginSide = c.boundary_A !== null && Number.isFinite(c.boundary_A) ? axisClampSide(c.boundary_A / 1000, axis) : null;
   const xM = c.boundary_A !== null && Number.isFinite(c.boundary_A)
-    ? xL + scalePos(model, axis, c.boundary_A / 1000, xRange)
+    ? (marginSide === 'low' ? xL : marginSide === 'high' ? xR : xL + scalePos(model, axis, c.boundary_A / 1000, xRange))
     : null;
   const y = row.cy;
 
@@ -597,37 +611,51 @@ function drawConstraint(
     const lo = Math.min(xC, xM);
     const hi = Math.max(xC, xM);
     out.push(`<line data-role="criterion-bar" x1="${lo}" y1="${y}" x2="${hi}" y2="${y}" stroke="${family}" stroke-width="6" stroke-linecap="butt" opacity="0.9"/>`);
-    /* Open (margin) dot drawn BEFORE the filled criterion dot: a small
-     * percentage margin on a log-scale axis can land the two centres
-     * only a couple of pixels apart, and the open dot's opaque fill
-     * would otherwise erase the filled one drawn under it. */
-    out.push(`<circle data-role="margin" cx="${xM}" cy="${y}" r="6" fill="${bg}" stroke="${family}" stroke-width="2"/>`);
+    if (marginSide !== null) {
+      out.push(offRangeTriangleH(xM, y, marginSide, family));
+    } else {
+      /* Open (margin) dot drawn BEFORE the filled criterion dot: a
+       * small percentage margin on a log-scale axis can land the two
+       * centres only a couple of pixels apart, and the open dot's
+       * opaque fill would otherwise erase the filled one drawn under
+       * it. */
+      out.push(`<circle data-role="margin" cx="${xM}" cy="${y}" r="6" fill="${bg}" stroke="${family}" stroke-width="2"/>`);
+    }
   }
 
-  /* filled dot = criterion */
-  out.push(`<circle data-role="criterion" cx="${xC}" cy="${y}" r="6" fill="${family}"/>`);
-  /* value text above the criterion */
+  if (critSide !== null) {
+    out.push(offRangeTriangleH(xC, y, critSide, family));
+  } else {
+    out.push(`<circle data-role="criterion" cx="${xC}" cy="${y}" r="6" fill="${family}"/>`);
+  }
+  /* value text above the criterion — spec §Range: showing the exact
+   * value and unit here is what makes an off-range marker "explicit"
+   * rather than a bare clipped glyph. */
   out.push(`<text data-role="criterion-value" x="${xC}" y="${y - 8}" font-size="${fs - 1}" text-anchor="middle" font-weight="600" fill="${family}">${escapeText(formatAmps(c.value_A, c.value_A < 1000 ? 'A' : 'kA'))}</text>`);
 
   /* margin value text BELOW the open dot, and the direction arrow
    * OUTSIDE the open dot in the acceptable direction. The arrow points
-   * TOWARD acceptable values. */
+   * TOWARD acceptable values; skipped when the margin is off-range —
+   * its exact boundary position isn't on the visible axis to point
+   * from — but the value text is kept for the same reason as above. */
   if (xM !== null) {
     if (marginText) {
       out.push(`<text data-role="margin-value" x="${xM}" y="${y + 22}" font-size="${fs - 1}" text-anchor="middle" fill="${theme.callout}">${escapeText(marginText)}</text>`);
     }
-    /* short direction arrow outside the open dot pointing to acceptable
-     * values. For `below` constraints the selected must be > criterion,
-     * so the arrow at the open margin boundary points RIGHT (toward
-     * higher values, which are the acceptable side). For `above` the
-     * arrow points LEFT. */
-    const arrowDir = c.direction === 'below' ? 1 : -1;
-    const arrowStart = xM + arrowDir * 14;
-    const arrowEnd = xM + arrowDir * 24;
-    out.push(`<g data-role="arrow" transform="translate(${arrowStart}, ${y})">
-      <line x1="0" y1="0" x2="${arrowEnd - arrowStart}" y2="0" stroke="${family}" stroke-width="1.5" opacity="0.85"/>
-      <polyline points="${arrowEnd - arrowStart + arrowDir * -4},-3 ${arrowEnd - arrowStart},0 ${arrowEnd - arrowStart + arrowDir * -4},3" fill="none" stroke="${family}" stroke-width="1.5"/>
-    </g>`);
+    if (marginSide === null) {
+      /* short direction arrow outside the open dot pointing to acceptable
+       * values. For `below` constraints the selected must be > criterion,
+       * so the arrow at the open margin boundary points RIGHT (toward
+       * higher values, which are the acceptable side). For `above` the
+       * arrow points LEFT. */
+      const arrowDir = c.direction === 'below' ? 1 : -1;
+      const arrowStart = xM + arrowDir * 14;
+      const arrowEnd = xM + arrowDir * 24;
+      out.push(`<g data-role="arrow" transform="translate(${arrowStart}, ${y})">
+        <line x1="0" y1="0" x2="${arrowEnd - arrowStart}" y2="0" stroke="${family}" stroke-width="1.5" opacity="0.85"/>
+        <polyline points="${arrowEnd - arrowStart + arrowDir * -4},-3 ${arrowEnd - arrowStart},0 ${arrowEnd - arrowStart + arrowDir * -4},3" fill="none" stroke="${family}" stroke-width="1.5"/>
+      </g>`);
+    }
   }
 
   /* label on the FAR side with a pale leader to the criterion */
@@ -662,16 +690,22 @@ function drawSelection(
   rightGutter: number,
 ): string {
   const out: string[] = [];
+  /* `range focus` bounds the axis around the controlling boundaries;
+   * the selection is normally within them (spec: focus "focuses on
+   * ... the selected value"), but a do-not-set selection can still
+   * fall outside — clamp so the line stays on the visible plot rather
+   * than vanishing off it (model.ts emits PSDL204 for this too). */
+  const selSide = axisClampSide(model.selection.value_A / 1000, axis);
   if (o === 'horizontal') {
     const xL = padL + leftGutter;
     const xR = padL + plotW - rightGutter;
     const xRange = xR - xL;
-    const x = xL + scalePos(model, axis, model.selection.value_A / 1000, xRange);
+    const x = selSide === 'low' ? xL : selSide === 'high' ? xR : xL + scalePos(model, axis, model.selection.value_A / 1000, xRange);
     out.push(`<line data-role="selected-line" x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}" stroke="${palette.selected}" stroke-width="2"/>`);
     out.push(`<text data-role="selected-label" x="${x}" y="${padT - 12}" font-size="${fs + 1}" font-weight="700" fill="${palette.selected}" text-anchor="middle">${escapeText(selectedLabelText(model))}</text>`);
     out.push(`<circle data-role="selected-marker-dot" cx="${x}" cy="${padT + plotH / 2}" r="6" fill="${palette.selected}"/>`);
   } else {
-    const y = verticalY(model, axis, model.selection.value_A / 1000, padT, plotH);
+    const y = verticalYClamped(model, axis, model.selection.value_A / 1000, padT, plotH);
     const labelX = verticalLabelX(padL);
     out.push(`<line data-role="selected-line" x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="${palette.selected}" stroke-width="2"/>`);
     out.push(`<text data-role="selected-label" x="${labelX}" y="${y - 8}" font-size="${fs + 1}" font-weight="700" fill="${palette.selected}" text-anchor="start">${escapeText(selectedLabelText(model))}</text>`);
@@ -871,6 +905,37 @@ function scalePos(model: Resolved, axis: Resolved['axis'], v_kA: number, axisLen
 }
 
 /**
+ * Spec §Range: "A renderer MUST NOT omit a value without an explicit
+ * off-range marker containing the exact value and unit." `range focus`
+ * sizes the axis around the controlling boundaries, which can leave a
+ * remote criterion's value outside [axis.minimum, axis.maximum] — this
+ * says which edge it fell off, so the caller can clamp the marker's
+ * position there and draw an off-range glyph instead of a normal dot
+ * (model.ts emits PSDL204_OFF_RANGE_MARKER for the same condition).
+ */
+function axisClampSide(v_kA: number, axis: Resolved['axis']): 'low' | 'high' | null {
+  if (v_kA < axis.minimum) return 'low';
+  if (v_kA > axis.maximum) return 'high';
+  return null;
+}
+
+/** Off-range marker for horizontal orientation: a triangle flush with
+ * the plot edge, tip pointing outward toward where the real value lies. */
+function offRangeTriangleH(x: number, y: number, side: 'low' | 'high', color: string): string {
+  const dir = side === 'low' ? -1 : 1;
+  const tipX = x + dir * 9;
+  return `<polygon data-role="off-range-marker" points="${tipX},${y} ${x},${y - 6} ${x},${y + 6}" fill="${color}"/>`;
+}
+
+/** Off-range marker for vertical orientation: 'low' clamps to the
+ * bottom of the axis (tip pointing down), 'high' to the top (tip up). */
+function offRangeTriangleV(x: number, y: number, side: 'low' | 'high', color: string): string {
+  const dir = side === 'low' ? 1 : -1;
+  const tipY = y + dir * 9;
+  return `<polygon data-role="off-range-marker" points="${x},${tipY} ${x - 6},${y} ${x + 6},${y}" fill="${color}"/>`;
+}
+
+/**
  * Vertical orientation (spec §Orientation — "Both orientations MUST use
  * the same criterion, margin, direction and status semantics"). The
  * calibrated axis runs top (axis.maximum) to bottom (axis.minimum) over
@@ -882,6 +947,18 @@ function scalePos(model: Resolved, axis: Resolved['axis'], v_kA: number, axisLen
  */
 function verticalY(model: Resolved, axis: Resolved['axis'], v_kA: number, padT: number, plotH: number): number {
   return padT + plotH - scalePos(model, axis, v_kA, plotH);
+}
+
+/** verticalY, but clamped to the plot's top/bottom for an off-range
+ * value — matching where drawConstraint actually plots the marker, so
+ * the label-declutter pass (which runs before drawConstraint and needs
+ * to agree with it) doesn't place a label at some wild unclamped
+ * position far off the canvas. */
+function verticalYClamped(model: Resolved, axis: Resolved['axis'], v_kA: number, padT: number, plotH: number): number {
+  const side = axisClampSide(v_kA, axis);
+  if (side === 'high') return padT;
+  if (side === 'low') return padT + plotH;
+  return verticalY(model, axis, v_kA, padT, plotH);
 }
 
 /** x of the vertical calibrated-axis line, ticks and tick labels. */

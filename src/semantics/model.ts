@@ -580,6 +580,48 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
     maximum: max_A / 1000,
   };
 
+  /* Spec §Range: "A renderer MUST NOT omit a value without an explicit
+   * off-range marker containing the exact value and unit." `range
+   * focus` and an explicit range can both produce bounds tighter than
+   * every plotted value; flag anything that falls outside so the
+   * renderer draws an off-range marker instead of silently clipping it
+   * (auto/all always include every value by construction, so this is a
+   * no-op there). */
+  for (const c of resolved) {
+    if (c.value_A < min_A || c.value_A > max_A) {
+      diagnostics.push({
+        code: 'PSDL204_OFF_RANGE_MARKER',
+        severity: 'warning',
+        message: `Criterion '${c.label}' (${formatAmps(c.value_A, c.value_A < 1000 ? 'A' : 'kA')}) falls outside the calibrated range.`,
+        line: c.loc.line,
+        column: c.loc.column,
+        offset: c.loc.offset,
+        length: c.label.length + 2,
+      });
+    } else if (c.boundary_A !== null && (c.boundary_A < min_A || c.boundary_A > max_A)) {
+      diagnostics.push({
+        code: 'PSDL204_OFF_RANGE_MARKER',
+        severity: 'warning',
+        message: `Margin boundary for '${c.label}' (${formatAmps(c.boundary_A, c.boundary_A < 1000 ? 'A' : 'kA')}) falls outside the calibrated range.`,
+        line: c.loc.line,
+        column: c.loc.column,
+        offset: c.loc.offset,
+        length: c.label.length + 2,
+      });
+    }
+  }
+  if (Number.isFinite(selection.value_A) && (selection.value_A < min_A || selection.value_A > max_A)) {
+    diagnostics.push({
+      code: 'PSDL204_OFF_RANGE_MARKER',
+      severity: 'warning',
+      message: `Selected value (${formatAmps(selection.value_A, selection.value_A < 1000 ? 'A' : 'kA')}) falls outside the calibrated range.`,
+      line: selection.loc.line,
+      column: selection.loc.column,
+      offset: selection.loc.offset,
+      length: 8,
+    });
+  }
+
   /* controlling preferred boundaries */
   const lower = controllingLower(resolved);
   const upper = controllingUpper(resolved);
