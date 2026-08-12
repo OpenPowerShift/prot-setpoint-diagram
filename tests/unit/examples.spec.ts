@@ -111,3 +111,38 @@ describe('spec §Layout step 9: combine identical positions', () => {
     expect(labelX).toBeGreaterThan(0);
   });
 });
+
+describe('vertical marker-collision avoidance (distinct from label decluttering)', () => {
+  /* Regression: label decluttering only ever moved TEXT. Criteria close
+   * enough in value that their ~12px dots would land on top of each
+   * other (but NOT identical — those combine into one ×N marker
+   * instead, see above) had nothing keeping the dots themselves apart. */
+  const src = `diagram "Near-coincident dots" {
+    orientation vertical
+    below "Load A" must 5.00 kA
+    below "Load B" must 5.02 kA
+    below "Load C" must 5.04 kA
+    above "Fault" must 8 kA
+    selected "Pickup" 6 kA
+  }`;
+
+  it('spreads colliding dots into distinct x positions rather than stacking them', () => {
+    const { svg } = parseAndRender(src);
+    const xs = [...svg.matchAll(/data-role="criterion" cx="([\d.]+)"/g)].map((m) => Number(m[1]));
+    expect(xs.length).toBe(4); // Load A, B, C + Fault
+    const belowXs = new Set(xs.slice(0, 3).map((x) => Math.round(x)));
+    expect(belowXs.size).toBe(3); // three distinct x positions, not one
+  });
+
+  it('leaves well-separated values untouched (all markers on the same x)', () => {
+    const separated = `diagram "T" {
+      orientation vertical
+      below "Load A" must 5 kA
+      above "Fault" must 8 kA
+      selected "S" 6 kA
+    }`;
+    const { svg } = parseAndRender(separated);
+    const xs = [...svg.matchAll(/data-role="criterion" cx="([\d.]+)"/g)].map((m) => Number(m[1]));
+    expect(new Set(xs.map((x) => Math.round(x))).size).toBe(1);
+  });
+});

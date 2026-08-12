@@ -110,29 +110,49 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
   const hasSelection = Number.isFinite(model.selection.value_A);
   const selY = o === 'vertical' && hasSelection ? verticalYClamped(model, axis, model.selection.value_A / 1000, padT, plotH) : null;
 
-  /* Vertical only: criterion values can sit numerically close together,
-   * which on a calibrated axis crowds their labels against each other
-   * and against the SELECTED/status text anchored to the line. Declutter
-   * label Y positions once, up front, so drawConstraint can offset each
-   * label (and its leader) from the marker's true position. */
+  /* Spec §Layout step 9: "Combine identical positions into one marker
+   * with ×N and list labels in the gutter." Computed once and reused
+   * below (for vertical's per-marker declutter/column math) and by the
+   * render loop, so both agree on what's actually drawn — a group's
+   * secondary members never get their own marker. */
+  const constraintGroups = groupConstraints(model.constraints);
+
+  /* Vertical only. Two distinct collision problems, both driven by how
+   * close criterion values are on the calibrated axis:
+   *  - LABEL TEXT collides: declutterVerticalLabels moves the text (and
+   *    its leader) vertically, away from neighbours and the
+   *    SELECTED/status block. This alone doesn't stop dots colliding —
+   *    it only ever moved text.
+   *  - MARKER DOTS collide: two values close enough that their ~12px
+   *    dots would land on top of each other. assignVerticalMarkerColumns
+   *    spreads those into a couple of narrow side-by-side columns so
+   *    each stays visible and near its true position, rather than
+   *    stacking invisibly on top of one another. */
   let vLabelY: number[] | null = null;
+  let vMarkerX: number[] | null = null;
   if (o === 'vertical') {
-    const naturalY = model.constraints.map((c) => verticalYClamped(model, axis, c.value_A / 1000, padT, plotH));
+    const repY = constraintGroups.map((g) => verticalYClamped(model, axis, g.representative.value_A / 1000, padT, plotH));
     const obstacle = selY !== null ? { top: selY - 26, bottom: selY + 20 + fs + 3 } : null;
-    vLabelY = declutterVerticalLabels(naturalY, obstacle, fs + 5);
+    const declutteredY = declutterVerticalLabels(repY, obstacle, fs + 5);
+    const columnOffset = assignVerticalMarkerColumns(repY);
+    vLabelY = new Array(model.constraints.length).fill(null);
+    vMarkerX = new Array(model.constraints.length).fill(0);
+    constraintGroups.forEach((g, gi) => {
+      const idx = model.constraints.indexOf(g.representative);
+      vLabelY![idx] = declutteredY[gi]!;
+      vMarkerX![idx] = columnOffset[gi]!;
+    });
   }
 
-  /* Constraints (each on its own row). Spec §Layout step 9: "Combine
-   * identical positions into one marker with ×N and list labels in the
-   * gutter." Constraints sharing an exact (direction, value, boundary)
-   * triple would otherwise draw stacked, indistinguishable markers —
-   * draw once per group, at its representative's row, and let the rest
-   * of that row's slot go unused rather than reworking the row layout
-   * itself around group count. */
-  for (const g of groupConstraints(model.constraints)) {
+  /* Constraints (each on its own row). Constraints sharing an exact
+   * (direction, value, boundary) triple would otherwise draw stacked,
+   * indistinguishable markers — draw once per group, at its
+   * representative's row, and let the rest of that row's slot go
+   * unused rather than reworking the row layout around group count. */
+  for (const g of constraintGroups) {
     const i = model.constraints.indexOf(g.representative);
     const row = rows[i];
-    parts.push(drawConstraint(g.representative, row, model, axis, padL, padT, plotW, plotH, o, fs, theme, palette, leftGutter, rightGutter, vLabelY ? vLabelY[i] : null, g.names.length > 1 ? g.names : null));
+    parts.push(drawConstraint(g.representative, row, model, axis, padL, padT, plotW, plotH, o, fs, theme, palette, leftGutter, rightGutter, vLabelY ? vLabelY[i] : null, g.names.length > 1 ? g.names : null, vMarkerX ? vMarkerX[i] : 0));
   }
 
   /* Selected — orange line + selected label. The status text is anchored
@@ -267,6 +287,50 @@ function declutterVerticalLabels(naturalY: number[], obstacle: { top: number; bo
   }
 
   return adjusted;
+}
+
+/**
+ * Vertical marker-collision avoidance — distinct from label decluttering
+ * above, which only ever moves TEXT. Nothing kept the DOTS themselves
+ * apart: two criteria close enough in value put their ~12px-diameter
+ * markers within a few pixels of each other, rendering as one
+ * indistinguishable blob. When a run of values is within
+ * MARKER_COLLISION_GAP of its neighbour, this spreads that run across a
+ * few narrow side-by-side columns (capped at MARKER_MAX_COLUMNS, cycling
+ * back for anything denser) instead — each dot stays near its true y and
+ * visibly separate, rather than moving vertically the way a label would.
+ */
+const MARKER_COLLISION_GAP = 14; // ~2x dot radius (r=6) plus breathing room
+const MARKER_COLUMN_PITCH = 16;
+const MARKER_MAX_COLUMNS = 3;
+
+function assignVerticalMarkerColumns(naturalY: number[]): number[] {
+  const n = naturalY.length;
+  const offsets = new Array<number>(n).fill(0);
+  const order = naturalY.map((_, i) => i).sort((a, b) => naturalY[a] - naturalY[b]);
+
+  /* Column 0 is the unshifted centre; odd columns step right, even
+   * columns (2, 4, ...) step left, so a 3-column cluster reads as
+   * centre / right / left rather than marching off in one direction. */
+  const columnOffset = (col: number): number => {
+    if (col === 0) return 0;
+    const magnitude = Math.ceil(col / 2) * MARKER_COLUMN_PITCH;
+    return col % 2 === 1 ? magnitude : -magnitude;
+  };
+
+  let clusterStart = 0;
+  for (let k = 1; k <= order.length; k++) {
+    const atEnd = k === order.length || naturalY[order[k]] - naturalY[order[k - 1]] > MARKER_COLLISION_GAP;
+    if (!atEnd) continue;
+    const clusterSize = k - clusterStart;
+    if (clusterSize > 1) {
+      for (let m = 0; m < clusterSize; m++) {
+        offsets[order[clusterStart + m]] = columnOffset(m % MARKER_MAX_COLUMNS);
+      }
+    }
+    clusterStart = k;
+  }
+  return offsets;
 }
 
 /** Content-driven default canvas size — see call site for rationale. */
@@ -568,6 +632,10 @@ function drawConstraint(
    * sharing this exact marker position, when there's more than one —
    * null for the (overwhelmingly common) single-criterion case. */
   groupNames: string[] | null,
+  /** Vertical only: horizontal shift assigned by
+   * assignVerticalMarkerColumns when this marker's dot would otherwise
+   * collide with a neighbour's. 0 for everything else. */
+  markerXOffset: number,
 ): string {
   void plotW;
   const out: string[] = [];
@@ -578,7 +646,7 @@ function drawConstraint(
   const displayName = groupNames && groupNames.length > 1 ? groupNames.join(', ') : c.label;
 
   if (o === 'vertical') {
-    const markerX = verticalMarkerX(padL);
+    const markerX = verticalMarkerX(padL) + markerXOffset;
     const critSide = axisClampSide(c.value_A / 1000, axis);
     const yC = verticalYClamped(model, axis, c.value_A / 1000, padT, plotH);
     const marginSide = c.boundary_A !== null && Number.isFinite(c.boundary_A) ? axisClampSide(c.boundary_A / 1000, axis) : null;
