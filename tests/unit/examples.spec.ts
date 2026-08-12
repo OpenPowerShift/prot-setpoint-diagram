@@ -67,3 +67,47 @@ describe('spec §Range: off-range markers', () => {
     }
   });
 });
+
+describe('spec §Layout step 9: combine identical positions', () => {
+  const src = `diagram "Coincident values" {
+    below "Load A" must 5 kA
+    below "Load B" must 5 kA
+    below "Load C" must 5 kA
+    above "Fault" must 8 kA
+    selected "Pickup" 6 kA
+  }`;
+
+  it('draws one marker with ×N instead of three stacked ones', () => {
+    const { svg } = parseAndRender(src);
+    expect(svg).toContain('5 kA ×3');
+    expect((svg.match(/data-role="criterion"/g) ?? []).length).toBe(2); // combined + Fault
+  });
+
+  it('lists every combined name in the gutter, not truncated', () => {
+    const { svg } = parseAndRender(src);
+    expect(svg).toContain('Load A, Load B, Load C');
+  });
+
+  it('does not combine criteria that share a value but not a margin', () => {
+    const distinctMargins = `diagram "T" {
+      below "Load A" must 5 kA margin 10%
+      below "Load B" must 5 kA margin 5%
+      above "Fault" must 8 kA
+      selected "S" 6 kA
+    }`;
+    const { svg } = parseAndRender(distinctMargins);
+    expect(svg).not.toContain('×2');
+    expect((svg.match(/data-role="criterion"/g) ?? []).length).toBe(3);
+  });
+
+  it('sizes the gutter to the combined label so it is not clipped', () => {
+    /* Regression: gutters/canvas used to be sized from each individual
+     * label, then the render loop drew the combined ", "-joined one —
+     * fine for one name, an overflow as soon as a group had two. */
+    const { svg } = parseAndRender(src);
+    const m = svg.match(/data-role="criterion-label"[^>]*x="([\d.]+)"/);
+    expect(m).not.toBeNull();
+    const labelX = Number(m![1]);
+    expect(labelX).toBeGreaterThan(0);
+  });
+});

@@ -122,11 +122,17 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
     vLabelY = declutterVerticalLabels(naturalY, obstacle, fs + 5);
   }
 
-  /* Constraints (each on its own row) */
-  for (let i = 0; i < model.constraints.length; i++) {
-    const c = model.constraints[i]!;
+  /* Constraints (each on its own row). Spec §Layout step 9: "Combine
+   * identical positions into one marker with ×N and list labels in the
+   * gutter." Constraints sharing an exact (direction, value, boundary)
+   * triple would otherwise draw stacked, indistinguishable markers —
+   * draw once per group, at its representative's row, and let the rest
+   * of that row's slot go unused rather than reworking the row layout
+   * itself around group count. */
+  for (const g of groupConstraints(model.constraints)) {
+    const i = model.constraints.indexOf(g.representative);
     const row = rows[i]!;
-    parts.push(drawConstraint(c, row, model, axis, padL, padT, plotW, plotH, o, fs, theme, palette, leftGutter, rightGutter, vLabelY ? vLabelY[i]! : null));
+    parts.push(drawConstraint(g.representative, row, model, axis, padL, padT, plotW, plotH, o, fs, theme, palette, leftGutter, rightGutter, vLabelY ? vLabelY[i]! : null, g.names.length > 1 ? g.names : null));
   }
 
   /* Selected — orange line + selected label. The status text is anchored
@@ -176,6 +182,36 @@ const MIN_AXIS_WIDTH = 400;
 const ROW_PITCH = 42;
 
 /**
+ * Spec §Layout step 9: "Combine identical positions into one marker
+ * with ×N and list labels in the gutter." One entry per DISTINCT
+ * (direction, value, boundary) triple. `representative` is (any) one
+ * of the group's actual Constraint objects — same value_A/boundary_A
+ * as every other member, by construction of the grouping key — used
+ * where a group needs to be measured or plotted as if it were a single
+ * criterion. Shared by the gutter/canvas sizing functions and the main
+ * render loop so all three agree on what's actually drawn — sizing
+ * gutters from individual labels while drawing combined ones is exactly
+ * how a combined label overflows its gutter.
+ */
+interface ConstraintGroup {
+  names: string[];
+  representative: Constraint;
+}
+function groupConstraints(constraints: Constraint[]): ConstraintGroup[] {
+  const map = new Map<string, ConstraintGroup>();
+  for (const c of constraints) {
+    const key = `${c.direction}|${c.value_A}|${c.boundary_A}`;
+    const existing = map.get(key);
+    if (existing) existing.names.push(c.label);
+    else map.set(key, { names: [c.label], representative: c });
+  }
+  return [...map.values()];
+}
+function groupDisplayName(g: ConstraintGroup): string {
+  return g.names.length > 1 ? g.names.join(', ') : g.names[0]!;
+}
+
+/**
  * Asymmetric label gutters (spec §Layout). Lower-family ("below")
  * labels are drawn in the left gutter and upper-family ("above") in the
  * right, so each side is sized from its own family's widest label. A
@@ -183,8 +219,9 @@ const ROW_PITCH = 42;
  * axis tick label.
  */
 function horizontalGutters(model: Resolved, fs: number): { left: number; right: number } {
+  const groups = groupConstraints(model.constraints);
   const widest = (dir: 'below' | 'above') =>
-    Math.max(0, ...model.constraints.filter((c) => c.direction === dir).map((c) => measureLabel(c.label, fs) + 24));
+    Math.max(0, ...groups.filter((g) => g.representative.direction === dir).map((g) => measureLabel(groupDisplayName(g), fs) + 24));
   return {
     left: Math.max(90, Math.min(widest('below'), 340)),
     right: Math.max(90, Math.min(widest('above'), 340)),
@@ -240,10 +277,12 @@ function defaultCanvasSize(model: Resolved, o: 'horizontal' | 'vertical', fs: nu
      * a criterion's "name · value (margin X%)" text, or the status
      * detail line (which can run long for extreme log-scale ratios). */
     const labelX = verticalLabelX(40);
-    const longestCriterion = Math.max(0, ...model.constraints.map((c) => {
-      const valueText = formatAmps(c.value_A, c.value_A < 1000 ? 'A' : 'kA');
+    const longestCriterion = Math.max(0, ...groupConstraints(model.constraints).map((g) => {
+      const c = g.representative;
+      const valueText = formatAmps(c.value_A, c.value_A < 1000 ? 'A' : 'kA') + (g.names.length > 1 ? ` ×${g.names.length}` : '');
       const m = marginLabel(c);
-      return measureLabel(m ? `${c.label} · ${valueText} (margin ${m})` : `${c.label} · ${valueText}`, fs);
+      const name = groupDisplayName(g);
+      return measureLabel(m ? `${name} · ${valueText} (margin ${m})` : `${name} · ${valueText}`, fs);
     }));
     let statusW = 0;
     if (Number.isFinite(model.selection.value_A)) {
@@ -524,12 +563,19 @@ function drawConstraint(
   leftGutter: number,
   rightGutter: number,
   vLabelY: number | null,
+  /** Spec §Layout step 9: "Combine identical positions into one marker
+   * with ×N and list labels in the gutter." Names of every criterion
+   * sharing this exact marker position, when there's more than one —
+   * null for the (overwhelmingly common) single-criterion case. */
+  groupNames: string[] | null,
 ): string {
   void plotW;
   const out: string[] = [];
   const family = c.direction === 'below' ? palette.lower : palette.upper;
   const bg = THEMES[model.choices.theme]?.background ?? '#ffffff';
   const marginText = marginLabel(c);
+  const countSuffix = groupNames && groupNames.length > 1 ? ` ×${groupNames.length}` : '';
+  const displayName = groupNames && groupNames.length > 1 ? groupNames.join(', ') : c.label;
 
   if (o === 'vertical') {
     const markerX = verticalMarkerX(padL);
@@ -586,8 +632,8 @@ function drawConstraint(
      * vertically within its row and extend a short pale leader." */
     const labelX = verticalLabelX(padL);
     const labelY = vLabelY ?? yC;
-    const valueText = formatAmps(c.value_A, c.value_A < 1000 ? 'A' : 'kA');
-    const fullLabel = marginText ? `${c.label} · ${valueText} (margin ${marginText})` : `${c.label} · ${valueText}`;
+    const valueText = formatAmps(c.value_A, c.value_A < 1000 ? 'A' : 'kA') + countSuffix;
+    const fullLabel = marginText ? `${displayName} · ${valueText} (margin ${marginText})` : `${displayName} · ${valueText}`;
     out.push(`<line data-role="leader" x1="${markerX + 10}" y1="${yC}" x2="${labelX - 6}" y2="${labelY}" stroke="#cdd2d8" stroke-width="0.6"/>`);
     out.push(`<circle data-role="leader-end" cx="${labelX - 6}" cy="${labelY}" r="1.5" fill="#cdd2d8"/>`);
     out.push(`<text data-role="criterion-label" x="${labelX}" y="${labelY + 4}" font-size="${fs}" text-anchor="start" fill="${theme.foreground}">${escapeText(fullLabel)}</text>`);
@@ -631,7 +677,7 @@ function drawConstraint(
   /* value text above the criterion — spec §Range: showing the exact
    * value and unit here is what makes an off-range marker "explicit"
    * rather than a bare clipped glyph. */
-  out.push(`<text data-role="criterion-value" x="${xC}" y="${y - 8}" font-size="${fs - 1}" text-anchor="middle" font-weight="600" fill="${family}">${escapeText(formatAmps(c.value_A, c.value_A < 1000 ? 'A' : 'kA'))}</text>`);
+  out.push(`<text data-role="criterion-value" x="${xC}" y="${y - 8}" font-size="${fs - 1}" text-anchor="middle" font-weight="600" fill="${family}">${escapeText(formatAmps(c.value_A, c.value_A < 1000 ? 'A' : 'kA') + countSuffix)}</text>`);
 
   /* margin value text BELOW the open dot, and the direction arrow
    * OUTSIDE the open dot in the acceptable direction. The arrow points
@@ -665,7 +711,7 @@ function drawConstraint(
   const labelAnchor = labelOnLeft ? 'end' : 'start';
   out.push(`<line data-role="leader" x1="${labelOnLeft ? xC : labelX}" y1="${y}" x2="${labelOnLeft ? labelX : xC}" y2="${y}" stroke="#cdd2d8" stroke-width="0.6"/>`);
   out.push(`<circle data-role="leader-end" cx="${labelOnLeft ? labelX : xC}" cy="${y}" r="1.5" fill="#cdd2d8"/>`);
-  out.push(`<text data-role="criterion-label" x="${labelX}" y="${labelY}" font-size="${fs}" text-anchor="${labelAnchor}" fill="${theme.foreground}">${escapeText(c.label)}</text>`);
+  out.push(`<text data-role="criterion-label" x="${labelX}" y="${labelY}" font-size="${fs}" text-anchor="${labelAnchor}" fill="${theme.foreground}">${escapeText(displayName)}</text>`);
 
   return out.join('\n');
 }
