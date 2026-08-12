@@ -271,3 +271,63 @@ describe('PSDL semantics — absolute margins (spec §Absolute margins)', () => 
     expect(all.some((d) => d.code === 'PSDL005_UNIT_UNKNOWN')).toBe(true);
   });
 });
+
+describe('PSDL semantics — per-quantity voltage override (spec §Per-quantity voltage)', () => {
+  it('converts MVA to amps with no diagram-level voltage statement at all', () => {
+    const src = `diagram "T" {
+      below "L" must 100 MVA @ 33 kV
+      above "U" must 300 MVA @ 33 kV
+      selected "S" 200 MVA @ 33 kV
+    }`;
+    const result = process(src);
+    expect(result.parseErrors).toHaveLength(0);
+    expect(result.diagnostics.some((d) => d.severity === 'error')).toBe(false);
+    /* 200 MVA at 33 kV = 200_000 / (sqrt(3) * 33) ≈ 3499 A. */
+    expect(result.resolved!.selection.value_A).toBeCloseTo(3499, 0);
+  });
+
+  it('lets criteria at different voltage levels share one diagram', () => {
+    const src = `diagram "T" {
+      below "11 kV side" must 50 MVA @ 11 kV
+      above "33 kV side" must 300 MVA @ 33 kV
+      selected "S" none
+    }`;
+    const { resolved } = process(src);
+    const [lower, upper] = resolved!.constraints;
+    /* 50 MVA @ 11 kV ≈ 2624.3 A; 300 MVA @ 33 kV ≈ 5248.6 A — each
+     * converted with its OWN voltage, not a shared diagram-level one. */
+    expect(lower!.value_A).toBeCloseTo(2624.3, 0);
+    expect(upper!.value_A).toBeCloseTo(5248.6, 0);
+  });
+
+  it('an inline @ override takes precedence over the declared voltage statement', () => {
+    const withOverride = `diagram "T" {
+      voltage 33 kV
+      below "L" must 100 MVA @ 11 kV
+      selected "S" none
+    }`;
+    const withoutOverride = `diagram "T" {
+      voltage 33 kV
+      below "L" must 100 MVA
+      selected "S" none
+    }`;
+    const a = process(withOverride).resolved!.constraints[0]!.value_A;
+    const b = process(withoutOverride).resolved!.constraints[0]!.value_A;
+    /* Same entered MVA, different effective voltage — must resolve to
+     * different amps, and the override case must NOT equal what the
+     * declared 33 kV alone would give. */
+    expect(a).not.toBeCloseTo(b, 0);
+    expect(a).toBeCloseTo(5248.6, 0); // 100 MVA @ 11 kV
+    expect(b).toBeCloseTo(1749.5, 0); // 100 MVA @ 33 kV (declared)
+  });
+
+  it('still requires a voltage (declared or inline) for MVA without either', () => {
+    const src = `diagram "T" {
+      below "L" must 100 MVA
+      selected "S" none
+    }`;
+    const result = process(src);
+    const all = [...result.parseErrors, ...result.diagnostics];
+    expect(all.some((d) => d.code === 'PSDL107_UNIT_INCOMPATIBLE')).toBe(true);
+  });
+});

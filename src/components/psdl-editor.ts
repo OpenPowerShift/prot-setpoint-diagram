@@ -5,7 +5,7 @@ import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLi
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { searchKeymap } from '@codemirror/search';
 import { autocompletion } from '@codemirror/autocomplete';
-import { linter, lintGutter, type Diagnostic as CmDiagnostic } from '@codemirror/lint';
+import { linter, lintGutter, forceLinting, type Diagnostic as CmDiagnostic } from '@codemirror/lint';
 import { psdlLanguage } from '../highlight/psdl-language.js';
 import { psdlEditorAppearance } from '../highlight/psdl-highlight-style.js';
 
@@ -46,7 +46,14 @@ export class PsdlEditor extends LitElement {
   }
 
   private makeState(): EditorState {
-    const marksRef = this.marks;
+    /* The linter's source function is a closure captured once, here, at
+     * editor creation. Previously it closed over a snapshot of
+     * `this.marks` taken at that moment — every later `marks` update
+     * (a new example, or re-parsing as the user types) was silently
+     * ignored by the linter, which kept re-checking the FIRST example's
+     * diagnostics forever. Reading `this.marks` live fixes the value;
+     * making it actually re-run when marks change (not just when the
+     * document changes) is handled below in `updated()`. */
     return EditorState.create({
       doc: this.value,
       extensions: [
@@ -63,7 +70,7 @@ export class PsdlEditor extends LitElement {
           activateOnTyping: true,
           maxRenderedOptions: 50,
         }),
-        linter(() => this.toCmDiagnostics(marksRef)),
+        linter(() => this.toCmDiagnostics(this.marks)),
         lintGutter(),
         EditorView.updateListener.of((v) => {
           if (v.docChanged) {
@@ -88,6 +95,17 @@ export class PsdlEditor extends LitElement {
         });
       }
     }
+    /* Diagnostics were stale until the NEXT keystroke triggered a lint
+     * re-run — e.g. switching to a shorter example left the previous,
+     * longer example's diagnostics applied to the new (shorter)
+     * document, which CodeMirror's linter has no defence against: a
+     * diagnostic position past the new document's end throws rather
+     * than clamping, taking the whole editor down. forceLinting makes
+     * the linter re-run immediately, against whatever `this.marks` and
+     * the document both are right now — always in agreement. */
+    if (changed.has('marks')) {
+      forceLinting(this.view);
+    }
   }
 
   private toCmDiagnostics(marks: EditorMark[]): CmDiagnostic[] {
@@ -107,7 +125,13 @@ export class PsdlEditor extends LitElement {
     if (!this.view) return 0;
     const doc = this.view.state.doc;
     const lineObj = doc.line(Math.max(1, Math.min(doc.lines, line)));
-    return lineObj.from + Math.max(0, col - 1);
+    /* Clamped to the line's own end, not just doc-of-any-length: a
+     * diagnostic's column can legitimately run past its line (e.g.
+     * `length` computed from a label that isn't literally on this
+     * line), and CodeMirror's lint machinery throws on an out-of-range
+     * position rather than clamping it — one bad diagnostic used to be
+     * able to crash the whole editor. */
+    return Math.min(lineObj.to, lineObj.from + Math.max(0, col - 1));
   }
 
   /* ================================================ completions */

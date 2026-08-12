@@ -24,7 +24,8 @@ selection       = "selected", string, ( quantity
                                 | "high",     [ step ]
                                 | "none" ) ;
 step            = "step", quantity ;
-quantity        = expression, unit ;
+quantity        = expression, unit, [ voltage_override ] ;
+voltage_override= "@", expression, "kV" ;
 percentage      = expression, "%" ;
 expression      = factor, { ( "*" | "/" ), factor } ;
 factor          = number | "(", expression, ")" ;

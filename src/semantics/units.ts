@@ -33,17 +33,23 @@ export function axisQuantityOf(_q: Quantity): AxisQuantity {
 }
 
 export function toAmps(value: Quantity, settings: Settings): number {
+  /* An inline `@ X kV` on this quantity takes precedence over the
+   * diagram's declared `voltage` statement — lets criteria measured at
+   * different voltage levels share one diagram, and removes the need
+   * for a `voltage` statement at all when every kVA/MVA quantity
+   * carries its own. */
+  const voltage_kV = value.voltageOverride?.value ?? settings.voltage_kV;
   switch (value.unit) {
     case 'A':
       return value.value;
     case 'kA':
       return value.value * 1000;
     case 'MVA':
-      if (settings.voltage_kV === undefined) return NaN;
-      return (value.value * 1000) / (SQRT3 * settings.voltage_kV);
+      if (voltage_kV === undefined) return NaN;
+      return (value.value * 1000) / (SQRT3 * voltage_kV);
     case 'kVA':
-      if (settings.voltage_kV === undefined) return NaN;
-      return ((value.value) / (SQRT3 * settings.voltage_kV));
+      if (voltage_kV === undefined) return NaN;
+      return ((value.value) / (SQRT3 * voltage_kV));
     case 'kV':
     case '%':
       return NaN;
@@ -68,12 +74,12 @@ export function formatQuantityForAxis(value: Quantity, settings: Settings): stri
       return `${formatPlain(value.value)} kA`;
     case 'MVA': {
       const amps = toAmps(value, settings);
-      const mva = toMVA(amps, settings.voltage_kV ?? NaN);
+      const mva = toMVA(amps, value.voltageOverride?.value ?? settings.voltage_kV ?? NaN);
       return `${formatPlain(mva)} MVA`;
     }
     case 'kVA': {
       const amps = toAmps(value, settings);
-      const mva = toMVA(amps, settings.voltage_kV ?? NaN);
+      const mva = toMVA(amps, value.voltageOverride?.value ?? settings.voltage_kV ?? NaN);
       return `${formatPlain(mva)} MVA`;
     }
     case '%':

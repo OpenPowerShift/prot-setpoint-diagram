@@ -1,0 +1,20 @@
+# Sample 10 — Advisory (should) vs mandatory (must)
+#
+# `must` sets the mandatory bounds an engineer refuses to cross;
+# `should` sets a more conservative PREFERRED bound inside them,
+# without narrowing what is compliant. Here the mandatory floor is
+# 4 kA (must), but 5 kA (should) is preferred. A 4.5 kA setting is
+# compliant (inside mandatory) yet CAUTION (outside preferred) —
+# purely because of the advisory criterion, with no margin involved.
+
+diagram "Advisory limit" {
+  orientation horizontal
+  scale linear
+  range auto
+
+  below "Absolute minimum (hard limit)" must 4 kA
+  below "Preferred minimum (advisory)" should 5 kA
+  above "Fault clearance" must 9 kA margin 10%
+
+  selected "Setting" 4.5 kA
+}

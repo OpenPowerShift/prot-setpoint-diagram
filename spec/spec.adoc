@@ -195,7 +195,7 @@ selected "Selected setting" high step 0.05 kA
 selected "Selected setting" none
 ----
 
-* A literal quantity is taken at face value. The unit may be `A`, `kA`, `kVA` or `MVA`. When the value is in `kVA` or `MVA` the `voltage` statement is REQUIRED and the renderer converts to amps. A quantity that lands outside every `must` original criterion is reported as `DO NOT SET` and emits a `PSDL109_SELECTED_OUTSIDE_MUST` diagnostic.
+* A literal quantity is taken at face value. The unit may be `A`, `kA`, `kVA` or `MVA`. When the value is in `kVA` or `MVA` the `voltage` statement is REQUIRED (or the quantity must carry its own `@ X kV`, see §Per-quantity voltage) and the renderer converts to amps. A quantity that lands outside every `must` original criterion is reported as `DO NOT SET` and emits a `PSDL109_SELECTED_OUTSIDE_MUST` diagnostic.
 * `midpoint` selects the midpoint of the finite preferred interval. If the preferred interval is unbounded or empty, midpoint selection fails and emits `PSDL111_MIDPOINT_UNAVAILABLE`.
 * `low` selects the *lowest* compliant setting: it equals `mandatoryInterval.minimum` (the highest `must below` original) rounded UP to the next multiple of `step`. `low` fails with `PSDL110_MANDATORY_INTERVAL_EMPTY` when the mandatory interval is empty. The result sits on the lower edge of the mandatory interval, so it is usually outside the preferred interval — `low` selections are almost always `CAUTION` and the renderer reports the percentage above the preferred lower bound.
 * `high` is the dual of `low`: it equals `mandatoryInterval.maximum` (the lowest `must above` original) rounded DOWN to the previous multiple of `step`. Same diagnostics and same status behaviour. Use `high` when the engineer wants the *highest possible* compliant setting — the relay will be the most sensitive, but still clear the must-above criteria.
@@ -246,6 +246,18 @@ below "Load" must (24 / 1.1) MVA margin 0.5 MVA
 Addition, subtraction, variables, functions and implicit multiplication are not part of version 1.0.
 Division by zero is an error.
 
+=== Per-quantity voltage
+
+Any quantity MAY carry an inline voltage, overriding the diagram's declared `voltage` for that one quantity's kVA/MVA conversion:
+
+[source,psdl]
+----
+below "11 kV side" must 50 MVA @ 11 kV
+above "33 kV side" must 20 MVA @ 33 kV
+----
+
+This lets one diagram compare criteria measured at different voltage levels — either side of a transformer, for example — without a single diagram-wide voltage being sufficient. `A` and `kA` quantities MAY also carry `@`, though it currently has no effect on the resolved value: current is already in amps and needs no voltage to convert. If every kVA/MVA quantity in a diagram carries its own `@`, the diagram-level `voltage` statement becomes unnecessary. Where both are present, the inline `@` on a quantity takes precedence over the declared `voltage` for that quantity.
+
 == Conversions
 
 For three-phase apparent power at line-to-line voltage:
@@ -262,7 +274,7 @@ I_secondary = I_primary * S / P
 I_primary   = I_secondary * P / S
 ----
 
-`voltage` is REQUIRED when current and MVA values must be compared.
+`voltage` is REQUIRED when current and MVA values must be compared, UNLESS every kVA/MVA quantity that needs converting carries its own `@` voltage override (see §Per-quantity voltage).
 `ct` is REQUIRED when secondary current is requested.
 The processor MUST preserve entered values and SHOULD return calculated primary current, secondary current and MVA where possible.
 

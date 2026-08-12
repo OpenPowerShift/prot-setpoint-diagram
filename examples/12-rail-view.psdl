@@ -1,0 +1,17 @@
+# Sample 12 — Rail view
+#
+# `view rail` is for stage summaries: no zone shading, no mandatory
+# wash — only the controlling boundaries, the selected value and its
+# percentages stay prominent. Compare against 04-compact.psdl (same
+# diagram, `view compact`) and feeder-setting.psdl (`view report`).
+
+diagram "Stage 1 pickup" {
+  view rail
+  scale auto
+  range auto
+
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum fault" must 8 kA margin 10%
+
+  selected "Stage 1 pickup" midpoint step 0.05 kA
+}

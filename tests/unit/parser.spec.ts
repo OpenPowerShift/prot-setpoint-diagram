@@ -53,4 +53,30 @@ describe('PSDL parser', () => {
     const { errors } = parse(src);
     expect(errors.some((e) => e.code === 'PSDL001_UNKNOWN_STATEMENT')).toBe(true);
   });
+
+  it('parses an inline @ voltage override on a quantity', () => {
+    const src = `diagram "T" { below "L" must 100 MVA @ 33 kV selected "S" none }`;
+    const { document, errors } = parse(src);
+    expect(errors).toHaveLength(0);
+    const constraint = document!.diagram.body.find((s) => s.type === 'constraint');
+    expect(constraint).toBeDefined();
+    if (constraint?.type === 'constraint') {
+      expect(constraint.value.voltageOverride?.value).toBe(33);
+    }
+  });
+
+  it('rejects @ not followed by kV', () => {
+    const src = `diagram "T" { below "L" must 100 MVA @ 33 A selected "S" none }`;
+    const { errors } = parse(src);
+    expect(errors.some((e) => e.code === 'PSDL005_UNIT_UNKNOWN')).toBe(true);
+  });
+
+  it('leaves quantities without @ unaffected (voltageOverride is undefined)', () => {
+    const src = `diagram "T" { below "L" must 5 kA selected "S" none }`;
+    const { document } = parse(src);
+    const constraint = document!.diagram.body.find((s) => s.type === 'constraint');
+    if (constraint?.type === 'constraint') {
+      expect(constraint.value.voltageOverride).toBeUndefined();
+    }
+  });
 });

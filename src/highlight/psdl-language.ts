@@ -75,6 +75,10 @@ export const psdlLanguage: SLType<PsdlState> = StreamLanguage.define<PsdlState>(
       stream.next();
       return 'number';
     }
+    if (stream.match('@', false)) {
+      stream.next();
+      return 'operator';
+    }
 
     /* identifier / keyword / property / unit */
     if (stream.match(/[a-zA-Z][\w-]*/, false)) {

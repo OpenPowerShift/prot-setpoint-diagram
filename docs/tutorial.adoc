@@ -102,6 +102,20 @@ diagram "With conversions" {
 
 With `voltage 33 kV`, an entered value of 5 kA primary current is equivalent to 285.8 MVA at the bus. With `ct 600/1`, the secondary current is `I_secondary = I_primary * 1/600`. The `show` statement asks the renderer to print all three forms below the diagram. The `PSDL304_CONVERSION_APPLIED` diagnostic tells the editor that a displayed value differs from the entered one — it is an information marker, not an error.
 
+A single diagram-wide `voltage` assumes every criterion is measured at the same busbar. That is not always true — a criterion on the other side of a transformer needs its own voltage to convert correctly. Any `kVA` or `MVA` quantity can carry an inline `@ X kV` that overrides the diagram's `voltage` just for that one value:
+
+[source,psdl]
+----
+diagram "Transformer feeder" {
+  below "11 kV side load" must 50 MVA @ 11 kV
+  above "33 kV side fault" must 300 MVA @ 33 kV
+
+  selected "Setting" 200 MVA @ 11 kV
+}
+----
+
+No `voltage` statement is needed here at all — every `MVA` quantity supplies its own. If a `voltage` statement is also present, `@` wins for that quantity; the declared `voltage` still applies to any quantity that omits `@`.
+
 == Mandatory and preferred intervals
 
 The processor combines every constraint on a single axis and works out two intervals. Both are derived, not declared:

@@ -19,6 +19,13 @@ import ABSOLUTE_SRC from '../../examples/06-absolute-margin.psdl?raw';
 import LOW_SRC from '../../examples/07-low-selection.psdl?raw';
 import HIGH_SRC from '../../examples/08-high-selection.psdl?raw';
 import MVA_SRC from '../../examples/09-mva-setpoint.psdl?raw';
+import SHOULD_SRC from '../../examples/10-should-advisory.psdl?raw';
+import INDICATIVE_SRC from '../../examples/11-indicative-scale.psdl?raw';
+import RAIL_SRC from '../../examples/12-rail-view.psdl?raw';
+import PERQTY_VOLTAGE_SRC from '../../examples/13-per-quantity-voltage.psdl?raw';
+import EXPLICIT_RANGE_SRC from '../../examples/14-explicit-range.psdl?raw';
+import COINCIDENT_SRC from '../../examples/15-coincident-markers.psdl?raw';
+import STYLE_SRC from '../../examples/16-style-customization.psdl?raw';
 
 const STARTER_PSDL = FEEDER_SRC;
 
@@ -35,6 +42,13 @@ const EXAMPLES: { id: string; label: string; src: string }[] = [
   { id: '07-low', label: 'Low selection (lowest compliant)', src: LOW_SRC },
   { id: '08-high', label: 'High selection (highest compliant)', src: HIGH_SRC },
   { id: '09-mva', label: 'Setpoint in 3-ph MVA', src: MVA_SRC },
+  { id: '10-should', label: 'Advisory (should) vs mandatory (must)', src: SHOULD_SRC },
+  { id: '11-indicative', label: 'Indicative scale', src: INDICATIVE_SRC },
+  { id: '12-rail', label: 'Rail view', src: RAIL_SRC },
+  { id: '13-per-quantity-voltage', label: 'Per-quantity voltage (@ kV)', src: PERQTY_VOLTAGE_SRC },
+  { id: '14-explicit-range', label: 'Explicit range', src: EXPLICIT_RANGE_SRC },
+  { id: '15-coincident', label: 'Coincident markers (×N)', src: COINCIDENT_SRC },
+  { id: '16-style', label: 'Style customization', src: STYLE_SRC },
 ];
 
 interface Mark {

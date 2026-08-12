@@ -156,6 +156,16 @@ export interface Quantity {
   /** The raw text of the expression (e.g. '1.1 * 10'). */
   expression: string;
   loc: SourceLocation;
+  /**
+   * Optional inline `@ X kV` — the voltage to use when converting THIS
+   * quantity's kVA/MVA to amps, in place of the diagram's declared
+   * `voltage` statement. Lets criteria measured at different voltage
+   * levels (e.g. either side of a transformer) share one diagram
+   * without a single diagram-wide voltage being sufficient — and,
+   * combined on every quantity that needs one, removes the need for a
+   * `voltage` statement at all.
+   */
+  voltageOverride?: { value: number; loc: SourceLocation };
 }
 
 export type Unit = 'A' | 'kA' | 'kVA' | 'MVA' | 'kV' | '%';

@@ -1171,6 +1171,12 @@ function percentLine(s: number, boundary: ControllingBoundary, direction: 'above
 
 function buildDisplay(selection: Selection, settings: { voltage_kV?: number; ct?: { primary: number; secondary: number } }): Display {
   const value_A = selection.value_A;
+  /* If the entered quantity carried its own `@ X kV`, converting the
+   * selection back to MVA for display with a DIFFERENT (diagram) voltage
+   * would not reproduce the entered figure — confusing without an
+   * obvious reason why. Prefer the entered override so "entered 200 MVA
+   * @ 11 kV" and the displayed MVA stay the same number. */
+  const mvaVoltage_kV = selection.entered?.voltageOverride?.value ?? settings.voltage_kV;
   return {
     value_A,
     primary: { label: 'Current', text: formatAmps(value_A) },
@@ -1181,13 +1187,13 @@ function buildDisplay(selection: Selection, settings: { voltage_kV?: number; ct?
     secondary: settings.ct
       ? { label: 'Secondary', text: formatPlain(toSecondaryAmps(value_A, settings.ct), 3) + ' A' }
       : undefined,
-    mva: settings.voltage_kV !== undefined
-      ? { label: 'MVA', text: formatPlain(toMVA(value_A, settings.voltage_kV), 1) + ' MVA' }
+    mva: mvaVoltage_kV !== undefined
+      ? { label: 'MVA', text: formatPlain(toMVA(value_A, mvaVoltage_kV), 1) + ' MVA' }
       : undefined,
     entered: selection.entered
       ? {
           label: 'Entered',
-          text: `${formatPlain(selection.entered.value)} ${selection.entered.unit}`,
+          text: `${formatPlain(selection.entered.value)} ${selection.entered.unit}${selection.entered.voltageOverride ? ` @ ${formatPlain(selection.entered.voltageOverride.value)} kV` : ''}`,
         }
       : undefined,
   };

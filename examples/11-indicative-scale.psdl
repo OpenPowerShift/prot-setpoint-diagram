@@ -1,0 +1,17 @@
+# Sample 11 — Indicative scale
+#
+# Criteria four orders of magnitude apart (200 A vs 45 kA) would
+# either crush the small end on a linear axis or force a log axis
+# whether or not that reads well for the audience. `scale indicative`
+# instead orders every value with even, non-calibrated spacing and
+# labels itself clearly as not-to-scale.
+
+diagram "Indicative overview" {
+  scale indicative
+  range auto
+
+  below "Secondary CT saturation limit" must 200 A
+  above "Maximum fault at remote busbar" must 45 kA margin 10%
+
+  selected "Setting" 8 kA
+}

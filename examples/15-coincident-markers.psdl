@@ -1,0 +1,15 @@
+# Sample 15 — Coincident markers (×N)
+#
+# Three feeders happen to share the same rating. Spec §Layout step 9:
+# identical positions combine into one marker with ×N, listing every
+# name in the gutter, rather than drawing three indistinguishable
+# stacked dots.
+
+diagram "Coincident load ratings" {
+  below "Feeder 1 rating" must 5 kA
+  below "Feeder 2 rating" must 5 kA
+  below "Feeder 3 rating" must 5 kA
+  above "Minimum fault" must 8 kA margin 10%
+
+  selected "Setting" 6 kA
+}

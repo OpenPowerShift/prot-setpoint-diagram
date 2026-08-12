@@ -1,0 +1,18 @@
+# Sample 13 — Per-quantity voltage (`@ X kV`)
+#
+# A single diagram-wide `voltage` assumes every criterion is measured
+# at the same busbar — not true across a transformer. Any kVA/MVA
+# quantity can instead carry its own `@ X kV`, converted with THAT
+# voltage regardless of what (if anything) a `voltage` statement
+# declares. No `voltage` statement is needed here at all: every MVA
+# quantity, including the selected setting, supplies its own.
+
+diagram "Transformer feeder — mixed voltage levels" {
+  ct 300/1 A
+  show current, mva, secondary
+
+  below "11 kV side emergency load" must 50 MVA @ 11 kV margin 10%
+  above "33 kV side minimum fault" must 300 MVA @ 33 kV margin 10%
+
+  selected "Setting" 80 MVA @ 11 kV
+}

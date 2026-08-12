@@ -54,6 +54,7 @@ export type TokenKind =
   | 'comma'
   | 'asterisk'
   | 'slash'
+  | 'at'
   | 'hash'
   | 'newline'
   | 'eof';
@@ -150,6 +151,12 @@ export function lex(src: string): Token[] {
     }
     if (c === '%') {
       tokens.push({ kind: 'percent', text: '%', loc: { line, column: col, offset: i } });
+      i++;
+      col++;
+      continue;
+    }
+    if (c === '@') {
+      tokens.push({ kind: 'at', text: '@', loc: { line, column: col, offset: i } });
       i++;
       col++;
       continue;
@@ -803,7 +810,8 @@ export function parse(src: string): ParseResult {
     const next_tok = peek();
     if (next_tok.kind === 'unit') {
       const u = next().text as Unit;
-      return { value: expr.value, unit: u, expression: expr.text, loc: expr.loc };
+      const voltageOverride = parseVoltageOverride();
+      return { value: expr.value, unit: u, expression: expr.text, loc: expr.loc, voltageOverride };
     }
     if (next_tok.kind === 'percent') {
       next();
@@ -816,6 +824,26 @@ export function parse(src: string): ParseResult {
     }
     pushError('PSDL005_UNIT_UNKNOWN', `Expected a unit (A, kA, kVA, MVA, %) after number, got ${describe(next_tok)}.`, next_tok.loc);
     return { value: expr.value, unit: 'A', expression: expr.text, loc: expr.loc };
+  }
+
+  /**
+   * Optional `@ X kV` trailing a quantity — the voltage to convert THIS
+   * quantity's kVA/MVA with, instead of falling back to the diagram's
+   * declared `voltage` statement. Absent for every other quantity kind
+   * (returns undefined without consuming anything if the next token
+   * isn't `@`).
+   */
+  function parseVoltageOverride(): { value: number; loc: SourceLocation } | undefined {
+    if (!at('at')) return undefined;
+    next();
+    const expr = parseExpression();
+    if (!expr) return undefined;
+    if (at('unit') && peek().text === 'kV') {
+      next();
+      return { value: expr.value, loc: expr.loc };
+    }
+    pushError('PSDL005_UNIT_UNKNOWN', `Expected 'kV' after '@', got ${describe(peek())}.`, peek().loc);
+    return { value: expr.value, loc: expr.loc };
   }
 
   function parseExpression(): { value: number; text: string; loc: SourceLocation } | undefined {
@@ -887,6 +915,7 @@ function describe(t: Token): string {
   if (t.kind === 'comma') return `','`;
   if (t.kind === 'asterisk') return `'*'`;
   if (t.kind === 'slash') return `'/'`;
+  if (t.kind === 'at') return `'@'`;
   if (t.kind === 'hash') return `'#'`;
   if (t.kind === 'newline') return `end of line`;
   return t.kind;

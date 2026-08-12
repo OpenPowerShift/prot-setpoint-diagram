@@ -1,0 +1,17 @@
+# Sample 16 — Style customization
+#
+# The four `style` properties are independent singletons — each may
+# appear once, in any combination — not one shared "style" statement.
+# This is the spec's own §Styling example, given a diagram to sit in.
+
+diagram "Custom styling" {
+  style theme print
+  style palette high-contrast
+  style zones full
+  style connections rows
+
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum fault" must 8 kA margin 10%
+
+  selected "Setting" midpoint step 0.05 kA
+}

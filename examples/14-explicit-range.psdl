@@ -1,0 +1,15 @@
+# Sample 14 — Explicit range
+#
+# `range auto` (the default) fits the axis to whatever is plotted.
+# An explicit `range LOW to HIGH` instead sets authoritative axis
+# limits — useful for holding a fixed frame across a series of related
+# diagrams, e.g. every stage of a grading study on the same axis.
+
+diagram "Explicit axis bounds" {
+  range 3 kA to 13 kA
+
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum fault" must 8 kA margin 10%
+
+  selected "Setting" midpoint step 0.05 kA
+}
