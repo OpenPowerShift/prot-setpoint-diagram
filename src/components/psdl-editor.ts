@@ -22,7 +22,7 @@ export interface EditorMark {
 export class PsdlEditor extends LitElement {
   /* render to light DOM so styles from global.css apply */
   protected override createRenderRoot(): HTMLElement {
-    return this as unknown as HTMLElement;
+    return this;
   }
 
   @property({ type: String }) value = '';
@@ -37,7 +37,7 @@ export class PsdlEditor extends LitElement {
   }
 
   override firstUpdated(): void {
-    this.hostEl = this.querySelector('.psdl-editor-host') as HTMLElement | null;
+    this.hostEl = this.querySelector('.psdl-editor-host');
     if (!this.hostEl) return;
     this.view = new EditorView({
       state: this.makeState(),

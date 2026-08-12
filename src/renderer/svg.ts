@@ -41,8 +41,8 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
   const { width: defaultWidth, height: defaultHeight } = defaultCanvasSize(model, o, fs);
   const declareWidth = opts.width ?? defaultWidth;
   const declareHeight = opts.height ?? defaultHeight;
-  const theme = THEMES[model.choices.theme] ?? THEMES.print!;
-  const palette = PALETTES[model.choices.palette] ?? PALETTES.accessible!;
+  const theme = THEMES[model.choices.theme] ?? THEMES.print;
+  const palette = PALETTES[model.choices.palette] ?? PALETTES.accessible;
 
   /* Spec §Layout: "The plot MUST reserve asymmetric gutters based on
    * measured labels rather than fixed equal margins." Lower-family
@@ -131,8 +131,8 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
    * itself around group count. */
   for (const g of groupConstraints(model.constraints)) {
     const i = model.constraints.indexOf(g.representative);
-    const row = rows[i]!;
-    parts.push(drawConstraint(g.representative, row, model, axis, padL, padT, plotW, plotH, o, fs, theme, palette, leftGutter, rightGutter, vLabelY ? vLabelY[i]! : null, g.names.length > 1 ? g.names : null));
+    const row = rows[i];
+    parts.push(drawConstraint(g.representative, row, model, axis, padL, padT, plotW, plotH, o, fs, theme, palette, leftGutter, rightGutter, vLabelY ? vLabelY[i] : null, g.names.length > 1 ? g.names : null));
   }
 
   /* Selected — orange line + selected label. The status text is anchored
@@ -208,7 +208,7 @@ function groupConstraints(constraints: Constraint[]): ConstraintGroup[] {
   return [...map.values()];
 }
 function groupDisplayName(g: ConstraintGroup): string {
-  return g.names.length > 1 ? g.names.join(', ') : g.names[0]!;
+  return g.names.length > 1 ? g.names.join(', ') : g.names[0];
 }
 
 /**
@@ -243,16 +243,16 @@ function declutterVerticalLabels(naturalY: number[], obstacle: { top: number; bo
   const n = naturalY.length;
   const adjusted = new Array<number>(n).fill(0);
   const mid = obstacle ? (obstacle.top + obstacle.bottom) / 2 : 0;
-  const order = naturalY.map((_, i) => i).sort((a, b) => naturalY[a]! - naturalY[b]!);
-  const aboveIdx = obstacle ? order.filter((i) => naturalY[i]! <= mid) : order;
-  const belowIdx = obstacle ? order.filter((i) => naturalY[i]! > mid) : [];
+  const order = naturalY.map((_, i) => i).sort((a, b) => naturalY[a] - naturalY[b]);
+  const aboveIdx = obstacle ? order.filter((i) => naturalY[i] <= mid) : order;
+  const belowIdx = obstacle ? order.filter((i) => naturalY[i] > mid) : [];
 
   /* Above the obstacle: walk bottom-up, pushing each label further up
    * only when it would collide with the one below it (or the obstacle). */
   let ceiling = obstacle ? obstacle.top - minGap : Number.POSITIVE_INFINITY;
   for (let k = aboveIdx.length - 1; k >= 0; k--) {
-    const i = aboveIdx[k]!;
-    const y = Math.min(naturalY[i]!, ceiling);
+    const i = aboveIdx[k];
+    const y = Math.min(naturalY[i], ceiling);
     adjusted[i] = y;
     ceiling = y - minGap;
   }
@@ -261,7 +261,7 @@ function declutterVerticalLabels(naturalY: number[], obstacle: { top: number; bo
    * only when it would collide with the one above it (or the obstacle). */
   let floor = obstacle ? obstacle.bottom + minGap : Number.NEGATIVE_INFINITY;
   for (const i of belowIdx) {
-    const y = Math.max(naturalY[i]!, floor);
+    const y = Math.max(naturalY[i], floor);
     adjusted[i] = y;
     floor = y + minGap;
   }
@@ -286,7 +286,7 @@ function defaultCanvasSize(model: Resolved, o: 'horizontal' | 'vertical', fs: nu
     }));
     let statusW = 0;
     if (Number.isFinite(model.selection.value_A)) {
-      statusW = measureLabel(statusText(model, PALETTES.accessible!).detail, fs - 1);
+      statusW = measureLabel(statusText(model, PALETTES.accessible).detail, fs - 1);
     }
     const width = Math.max(420, labelX + Math.max(longestCriterion, statusW) + 40);
     return { width, height: Math.max(320, 130 + n * 78) };
@@ -319,7 +319,7 @@ function layoutRows(constraints: Constraint[], o: 'horizontal' | 'vertical', plo
   const rows: { cx: number; cy: number; labelX: number; labelY: number; labelAnchor: 'start' | 'end'; valueAbove: number; valueBelow: number; marginValueX: number }[] = [];
   if (o !== 'horizontal') {
     for (let i = 0; i < constraints.length; i++) {
-      const c = constraints[i]!;
+      const c = constraints[i];
       const y = padT + ((i + 0.5) / constraints.length) * plotH;
       rows.push({ cx: 0, cy: y, labelX: 0, labelY: 0, labelAnchor: c.direction === 'below' ? 'end' : 'start', valueAbove: 0, valueBelow: 0, marginValueX: 0 });
     }
@@ -332,18 +332,18 @@ function layoutRows(constraints: Constraint[], o: 'horizontal' | 'vertical', plo
   const lowerIdx: number[] = [];
   const upperIdx: number[] = [];
   for (let i = 0; i < constraints.length; i++) {
-    if (constraints[i]!.direction === 'below') lowerIdx.push(i);
+    if (constraints[i].direction === 'below') lowerIdx.push(i);
     else upperIdx.push(i);
   }
   const upperTopY = padT + ROW_PITCH * 0.5;
   const lowerTopY = padT + plotH * 0.5;
   for (let k = 0; k < upperIdx.length; k++) {
-    const i = upperIdx[k]!;
+    const i = upperIdx[k];
     const cy = upperTopY + k * ROW_PITCH;
     rows[i] = { cx: 0, cy, labelX: 0, labelY: cy + 4, labelAnchor: 'start', valueAbove: -10, valueBelow: 22, marginValueX: 0 };
   }
   for (let k = 0; k < lowerIdx.length; k++) {
-    const i = lowerIdx[k]!;
+    const i = lowerIdx[k];
     const cy = lowerTopY + k * ROW_PITCH;
     rows[i] = { cx: 0, cy, labelX: 0, labelY: cy + 4, labelAnchor: 'end', valueAbove: -10, valueBelow: 22, marginValueX: 0 };
   }
@@ -932,11 +932,11 @@ function indicativeFraction(model: Resolved, v_kA: number): number {
   /* Value isn't one of the plotted points (e.g. an off-range reference)
    * — interpolate its rank between the nearest neighbours. */
   let lo = 0;
-  while (lo < n && values[lo]! < key) lo++;
+  while (lo < n && values[lo] < key) lo++;
   if (lo === 0) return 0;
   if (lo === n) return 1;
-  const below = values[lo - 1]!;
-  const above = values[lo]!;
+  const below = values[lo - 1];
+  const above = values[lo];
   const t = above > below ? (key - below) / (above - below) : 0;
   const rankBelow = n > 1 ? (lo - 1) / (n - 1) : 0.5;
   const rankAbove = n > 1 ? lo / (n - 1) : 0.5;

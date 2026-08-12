@@ -10,7 +10,7 @@ type Tab = 'tutorial' | 'guide' | 'reference';
 @customElement('psdl-guide')
 export class PsdlGuide extends LitElement {
   protected override createRenderRoot(): HTMLElement {
-    return this as unknown as HTMLElement;
+    return this;
   }
 
   @property({ type: Boolean, reflect: true }) open = false;

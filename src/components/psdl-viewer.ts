@@ -5,7 +5,7 @@ import { unsafeHTML } from 'lit/directives/unsafe-html.js';
 @customElement('psdl-viewer')
 export class PsdlViewer extends LitElement {
   protected override createRenderRoot(): HTMLElement {
-    return this as unknown as HTMLElement;
+    return this;
   }
 
   @property({ type: String }) svg = '';

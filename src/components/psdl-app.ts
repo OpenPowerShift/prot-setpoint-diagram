@@ -49,7 +49,7 @@ interface Mark {
 @customElement('psdl-app')
 export class PsdlApp extends LitElement {
   protected override createRenderRoot(): HTMLElement {
-    return this as unknown as HTMLElement;
+    return this;
   }
 
   @state() private source = STARTER_PSDL;
@@ -73,7 +73,10 @@ export class PsdlApp extends LitElement {
     try {
       const saved = localStorage.getItem('psdl.splitLeft');
       if (saved) document.documentElement.style.setProperty('--psdl-split-left', saved);
-    } catch {}
+    } catch {
+      /* localStorage can throw (privacy mode, disabled storage) — the
+       * split position is a nice-to-have, not worth failing over. */
+    }
     this.parseAndRender();
   }
 
@@ -238,7 +241,9 @@ export class PsdlApp extends LitElement {
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
-      try { localStorage.setItem('psdl.splitLeft', root.style.getPropertyValue('--psdl-split-left')); } catch {}
+      try { localStorage.setItem('psdl.splitLeft', root.style.getPropertyValue('--psdl-split-left')); } catch {
+        /* same as connectedCallback's read — best effort only */
+      }
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);

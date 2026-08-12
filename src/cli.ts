@@ -23,7 +23,7 @@ import { process as processPsdl } from './index.js';
 import { renderSvg } from './renderer/svg.js';
 
 const isMain = (() => {
-  try { return import.meta.url === pathToFileURL(process.argv[1]!).href; }
+  try { return import.meta.url === pathToFileURL(process.argv[1]).href; }
   catch { return false; }
 })();
 
@@ -47,7 +47,7 @@ function parseArgs(argv: string[]): { command: string; options: Options } | unde
   const opts: Options = { input: '', format: 'svg', quiet: false, json: false, help: false };
   let i = 0;
   while (i < argv.length) {
-    const a = argv[i]!;
+    const a = argv[i];
     if (a === '-h' || a === '--help') { opts.help = true; i++; continue; }
     if (a === '-q' || a === '--quiet') { opts.quiet = true; i++; continue; }
     if (a === '--json') { opts.json = true; i++; continue; }
@@ -260,7 +260,7 @@ async function main() {
       const svgEl = dom.documentElement as unknown as Element;
       await svg2pdf(svgEl, doc, { x: 0, y: 0, width: doc.internal.pageSize.getWidth(), height: doc.internal.pageSize.getHeight() });
       const out = options.output ? options.output : `${outBase}.pdf`;
-      const data = doc.output('arraybuffer') as ArrayBuffer;
+      const data = doc.output('arraybuffer');
       writeFileSync(out, Buffer.from(data));
       if (!options.quiet) console.error(`wrote ${out}`);
       void root;

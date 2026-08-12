@@ -297,10 +297,10 @@ export function parse(src: string): ParseResult {
   let pos = 0;
 
   function peek(): Token {
-    return tokens[pos]!;
+    return tokens[pos];
   }
   function next(): Token {
-    const t = tokens[pos]!;
+    const t = tokens[pos];
     pos++;
     return t;
   }
@@ -676,7 +676,7 @@ export function parse(src: string): ParseResult {
         reqTok.loc,
       );
     } else {
-      requirement = reqTok.text as Requirement;
+      requirement = reqTok.text;
     }
     const value = parseQuantity();
     if (!value) {
@@ -773,7 +773,7 @@ export function parse(src: string): ParseResult {
       return undefined;
     };
     if (tok.kind === 'identifier' && (tok.text === 'midpoint' || tok.text === 'low' || tok.text === 'high')) {
-      const keyword = tok.text as 'midpoint' | 'low' | 'high';
+      const keyword = tok.text;
       next();
       const step = consumeStep();
       form = { kind: keyword, step };
