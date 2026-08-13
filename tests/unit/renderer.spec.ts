@@ -23,7 +23,11 @@ describe('spec §Normative visual encoding: kA precision', () => {
     expect(svg).toContain('>3.5 kA<');
     expect(svg).toContain('>8.0 kA<');
     expect(svg).toContain('>12.0 kA<');
-    expect(svg).toContain('Selected 6.35 kA');
+    /* The selection's own label ("Selected setting") is the word shown
+     * above the plot; the numeric value now sits in its own row on the
+     * axis, spec §Selected-setting label. */
+    expect(svg).toMatch(/data-role="selected-label"[^>]*>Selected setting</);
+    expect(svg).toMatch(/data-role="selected-value"[^>]*>6\.35 kA/);
   });
 
   it('leaves sub-1000 A values in whole amps with no forced decimals', () => {
@@ -35,7 +39,8 @@ describe('spec §Normative visual encoding: kA precision', () => {
     const { svg } = parseAndRender(src);
     expect(svg).toContain('>400 A<');
     expect(svg).toContain('>900 A<');
-    expect(svg).toContain('Selected 650 A');
+    expect(svg).toMatch(/data-role="selected-label"[^>]*>Setting</);
+    expect(svg).toMatch(/data-role="selected-value"[^>]*>650 A</);
   });
 });
 
@@ -52,7 +57,12 @@ describe('spec §Secondary axis', () => {
     }`);
     expect(result.resolved?.secondaryAxis).toEqual({ position: 'top', quantity: 'MVA', voltage_kV: 33 });
     expect(svg).toContain('data-role="secondary-axis"');
-    expect(svg).toContain('300 MVA');
+    /* Only the outermost tick carries the unit (spec §Axis) — the rest
+     * are bare numbers, so check for the bare value and the unit
+     * appearing somewhere in the MVA tick row rather than every tick
+     * spelling out "MVA". */
+    expect(svg).toContain('>300<');
+    expect(svg).toMatch(/>[\d.]+ MVA</);
   });
 
   it('draws at the bottom when requested', () => {
@@ -111,7 +121,7 @@ describe('spec §Per-quantity voltage: override shown in brackets', () => {
     const { svg } = parseAndRender(load('13-per-quantity-voltage'));
     expect(svg).toContain('2.6 kA (@ 11 kV)');
     expect(svg).toContain('5.2 kA (@ 33 kV)');
-    expect(svg).toContain('Selected 4.20 kA (@ 11 kV)');
+    expect(svg).toMatch(/data-role="selected-value"[^>]*>4\.20 kA \(@ 11 kV\)/);
   });
 
   it('does not show a bracket for a plain kA/A quantity — the override has no effect there', () => {
@@ -131,8 +141,8 @@ describe('spec §Per-quantity voltage: override shown in brackets', () => {
       selected "S" 80 MVA @ 11 kV
     }`;
     const { svg } = parseAndRender(src);
-    const selectedLabel = svg.match(/<text data-role="selected-label"[^>]*>([^<]*)<\/text>/)?.[1] ?? '';
-    expect((selectedLabel.match(/@ 11 kV/g) ?? []).length).toBe(1);
+    const selectedValue = svg.match(/<text data-role="selected-value"[^>]*>([^<]*)<\/text>/)?.[1] ?? '';
+    expect((selectedValue.match(/@ 11 kV/g) ?? []).length).toBe(1);
   });
 });
 
@@ -171,12 +181,13 @@ describe('spec §Displayed quantities: nominal-voltage MVA cross-reference', () 
 describe('spec §Selected-setting percentages: zone annotations', () => {
   it('merges both preferred edges into one label when the zone is too narrow for two', () => {
     // feeder-setting's preferred interval (5.5-7.2 kA) is narrow enough
-    // relative to the axis that separate "5.5 kA +15.5%" / "7.2 kA
-    // -11.8%" labels would collide — merged into one is the fallback.
+    // relative to the axis that separate "5.5 kA" / "7.2 kA" labels
+    // would collide — merged into one two-line block is the fallback.
     const { svg } = parseAndRender(load('feeder-setting'));
     const annotations = [...svg.matchAll(/<text data-role="zone-percent"[^>]*>([^<]*)<\/text>/g)];
-    expect(annotations).toHaveLength(1);
-    expect(annotations[0]![1]).toBe('5.5 kA +15.5% · 7.2 kA -11.8%');
+    expect(annotations).toHaveLength(2);
+    expect(annotations[0]![1]).toBe('5.5 kA · 7.2 kA');
+    expect(annotations[1]![1]).toBe('+15.5% · -11.8%');
   });
 
   it('does not show a "Recommended" word or repeat the zone-annotated numbers in the footer', () => {
@@ -194,13 +205,14 @@ describe('spec §Selected-setting percentages: zone annotations', () => {
     }`;
     const { svg } = parseAndRender(src);
     const annotations = [...svg.matchAll(/<text data-role="zone-percent" data-edge="(\w+)"[^>]*>([^<]*)<\/text>/g)];
-    expect(annotations).toHaveLength(2);
-    const byEdge = Object.fromEntries(annotations.map((m) => [m[1], m[2]]));
-    expect(byEdge.lower).toBe('5.5 kA +34.5%');
+    expect(annotations).toHaveLength(4); // kA line + percent line, per edge
+    const byEdge: Record<string, string[]> = {};
+    for (const [, edge, text] of annotations) (byEdge[edge!] ??= []).push(text!);
+    expect(byEdge.lower).toEqual(['5.5 kA', '+34.5%']);
     // S=7.4 numerically exceeds the 7.2 kA upper boundary, so the raw
     // sign is positive even though this is the violated edge — colour
     // (not sign) is what flags it, checked separately below.
-    expect(byEdge.upper).toBe('7.2 kA +2.8%');
+    expect(byEdge.upper).toEqual(['7.2 kA', '+2.8%']);
   });
 
   it('caution: the violated edge is coloured caution/red even though its sign is positive', () => {
@@ -225,9 +237,10 @@ describe('spec §Selected-setting percentages: zone annotations', () => {
     }`;
     const { svg } = parseAndRender(src);
     const annotations = [...svg.matchAll(/<text data-role="zone-percent" data-edge="(\w+)"[^>]*>([^<]*)<\/text>/g)];
-    expect(annotations).toHaveLength(1);
+    expect(annotations).toHaveLength(2); // kA line + percent line, one edge
     expect(annotations[0]![1]).toBe('upper');
-    expect(annotations[0]![2]).toBe('7.2 kA +25%');
+    expect(annotations[0]![2]).toBe('7.2 kA');
+    expect(annotations[1]![2]).toBe('+25%');
     expect(svg).toContain('selected value crosses a mandatory criterion');
   });
 
@@ -249,8 +262,8 @@ describe('spec §Selected-setting percentages: zone annotations', () => {
     // The open "margin" circle IS the preferred boundary each label
     // describes (the filled "criterion" dot is the original, unmargined
     // value) — compare against that, not the criterion dot.
-    const upperMarkerY = svg.match(/<circle data-role="margin" cx="186" cy="([\d.]+)"[^>]*stroke="#1d4ed8"/);
-    const lowerMarkerY = svg.match(/<circle data-role="margin" cx="186" cy="([\d.]+)"[^>]*stroke="#0f766e"/);
+    const upperMarkerY = svg.match(/<circle data-role="margin" cx="156" cy="([\d.]+)"[^>]*stroke="#1d4ed8"/);
+    const lowerMarkerY = svg.match(/<circle data-role="margin" cx="156" cy="([\d.]+)"[^>]*stroke="#0f766e"/);
     expect(upper).not.toBeNull();
     expect(lower).not.toBeNull();
     expect(upper![2]).toBe('9.6 kA -37.5%');

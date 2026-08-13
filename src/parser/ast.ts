@@ -38,6 +38,7 @@ export type Statement =
   | WordStatement
   | StyleStatement
   | SecondaryAxisStatement
+  | SizeStatement
   | ConstraintStatement
   | SelectionStatement;
 
@@ -113,8 +114,22 @@ export interface WordStatement {
 
 export interface StyleStatement {
   type: 'style';
-  property: 'theme' | 'palette' | 'zones' | 'connections' | 'title';
+  property: 'theme' | 'palette' | 'zones' | 'connections' | 'title' | 'title-align' | 'title-position' | 'arrows';
   value: string;
+  loc: SourceLocation;
+}
+
+/**
+ * `size width N` / `size height N` (independent, either or both may be
+ * given): an explicit pixel dimension for the diagram canvas, overriding
+ * the content-driven default. Two statements rather than one `size W x
+ * H` — a diagram usually only needs to pin ONE axis (e.g. "make it full
+ * width") and let the other stay content-driven.
+ */
+export interface SizeStatement {
+  type: 'size';
+  property: 'width' | 'height';
+  value: number;
   loc: SourceLocation;
 }
 

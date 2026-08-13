@@ -252,6 +252,9 @@ const TYPE_KEYWORDS = new Set([
   'style',
   'secondary',
   'axis',
+  'size',
+  'width',
+  'height',
   'top',
   'bottom',
   'below',
@@ -271,7 +274,7 @@ const TYPE_KEYWORDS = new Set([
 const DISPLAY_QUANTITIES: DisplayQuantity[] = ['entered', 'current', 'mva', 'secondary'];
 const SCALE_KINDS: ScaleKind[] = ['linear', 'log', 'indicative', 'auto'];
 const VIEW_KINDS: ViewKind[] = ['report', 'compact', 'rail'];
-const STYLE_PROPERTIES = new Set(['theme', 'palette', 'zones', 'connections', 'title']);
+const STYLE_PROPERTIES = new Set(['theme', 'palette', 'zones', 'connections', 'title', 'title-align', 'title-position', 'arrows']);
 const STYLE_VALUES = new Set<string>([
   // theme
   'light',
@@ -294,6 +297,13 @@ const STYLE_VALUES = new Set<string>([
   // title
   'on',
   'off',
+  // title-align
+  'left',
+  'center',
+  'right',
+  // title-position
+  'top',
+  'bottom',
 ]);
 const WORD_NAMES: WordName[] = [
   'do-not-set',
@@ -448,6 +458,8 @@ export function parse(src: string): ParseResult {
         return parseStyle(tok, seen);
       case 'secondary':
         return parseSecondaryAxis(tok);
+      case 'size':
+        return parseSize(tok, seen);
       case 'below':
       case 'above':
         return parseConstraint(tok);
@@ -708,6 +720,32 @@ export function parse(src: string): ParseResult {
     return { type: 'secondary-axis', position, quantity, voltageOverride, loc: start.loc };
   }
 
+  function parseSize(start: Token, seen: Set<string>): Statement | undefined {
+    next();
+    const propTok = next();
+    if (propTok.kind !== 'identifier' || (propTok.text !== 'width' && propTok.text !== 'height')) {
+      pushError('PSDL001_UNKNOWN_STATEMENT', `Expected 'width' or 'height' after 'size', got ${describe(propTok)}.`, propTok.loc);
+      recoverLine();
+      return undefined;
+    }
+    const property = propTok.text;
+    if (seen.has('size:' + property)) {
+      pushError('PSDL002_DUPLICATE_SINGLETON', `Duplicate 'size ${property}' statement.`, propTok.loc, property.length);
+    }
+    seen.add('size:' + property);
+    const numTok = next();
+    if (numTok.kind !== 'number') {
+      pushError('PSDL004_EXPRESSION_INVALID', `'size ${property}' must be a number of pixels, got ${describe(numTok)}.`, numTok.loc);
+      recoverLine();
+      return undefined;
+    }
+    const value = Number(numTok.text);
+    if (!Number.isFinite(value) || value < 200 || value > 20000) {
+      pushError('PSDL004_EXPRESSION_INVALID', `'size ${property}' must be between 200 and 20000 pixels.`, numTok.loc, numTok.text.length);
+    }
+    return { type: 'size', property, value, loc: start.loc };
+  }
+
   function parseConstraint(start: Token): Statement {
     const direction = next().text as 'below' | 'above';
     const labelTok = expect('string', `criterion label`);
@@ -819,10 +857,16 @@ export function parse(src: string): ParseResult {
 
   function parseSelection(start: Token): Statement | undefined {
     next();
-    const labelTok = expect('string', `selection label`);
-    if (!labelTok) return undefined;
-    if (labelTok.text.length === 0) {
-      pushError('PSDL003_STRING_REQUIRED', `Selection label must not be empty.`, labelTok.loc);
+    /* The label is optional — spec: `selected [ "name" ] <form>` — since
+     * an unset label just falls back to `word selected` (or "Selected")
+     * as the diagram's prefix, and most diagrams don't need to override
+     * that. When present, it names the value itself (e.g. "Feeder OCR
+     * pickup") and the renderer uses it verbatim in place of the generic
+     * prefix. */
+    let label = '';
+    if (at('string')) {
+      const labelTok = next();
+      label = labelTok.text;
     }
     const tok = peek();
     let form: SelectionForm;
@@ -854,7 +898,7 @@ export function parse(src: string): ParseResult {
       pushError('PSDL001_UNKNOWN_STATEMENT', `Selection form must be a quantity, 'midpoint', 'low', 'high', or 'none', got ${describe(tok)}.`, tok.loc);
       form = { kind: 'none' };
     }
-    return { type: 'selection', label: labelTok.text, form, loc: start.loc };
+    return { type: 'selection', label, form, loc: start.loc };
   }
 
   /* expressions */

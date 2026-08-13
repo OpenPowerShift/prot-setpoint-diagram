@@ -23,5 +23,5 @@ diagram "Custom words" {
   above "Minimum 2-phase fault" must 8 kA margin 10%
   above "Minimum 3-phase fault" must 12 kA margin 10%
 
-  selected "Selected setting" midpoint step 0.05 kA
+  selected midpoint step 0.05 kA
 }

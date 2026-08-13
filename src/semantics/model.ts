@@ -150,6 +150,11 @@ export interface Resolved {
     zones: 'off' | 'subtle' | 'full';
     connections: 'off' | 'pale' | 'rows';
     title: 'on' | 'off';
+    titleAlign: 'left' | 'center' | 'right';
+    titlePosition: 'top' | 'bottom';
+    arrows: 'on' | 'off';
+    width?: number;
+    height?: number;
     words: Partial<Record<import('../parser/ast.js').WordName, string>>;
   };
 }
@@ -203,8 +208,10 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
   const constraints: ConstraintStatement[] = [];
   let selectionStmt: SelectionStatement | undefined;
   let secondaryAxisStmt: import('../parser/ast.js').SecondaryAxisStatement | undefined;
-  const paletteChoice: { palette: 'accessible' | 'default' | 'high-contrast' | 'monochrome'; theme: 'light' | 'dark' | 'print' | 'monochrome'; zones: 'off' | 'subtle' | 'full'; connections: 'off' | 'pale' | 'rows'; title: 'on' | 'off' } = { palette: 'accessible', theme: 'print', zones: 'subtle', connections: 'pale', title: 'on' };
+  const paletteChoice: { palette: 'accessible' | 'default' | 'high-contrast' | 'monochrome'; theme: 'light' | 'dark' | 'print' | 'monochrome'; zones: 'off' | 'subtle' | 'full'; connections: 'off' | 'pale' | 'rows'; title: 'on' | 'off'; titleAlign: 'left' | 'center' | 'right'; titlePosition: 'top' | 'bottom'; arrows: 'on' | 'off' } = { palette: 'accessible', theme: 'print', zones: 'subtle', connections: 'pale', title: 'on', titleAlign: 'left', titlePosition: 'top', arrows: 'on' };
   const wordChoices: Partial<Record<import('../parser/ast.js').WordName, string>> = {};
+  let sizeWidth: number | undefined;
+  let sizeHeight: number | undefined;
 
   for (const stmt of doc.body) {
     switch (stmt.type) {
@@ -257,9 +264,22 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
         if (stmt.property === 'title' && ['on', 'off'].includes(stmt.value)) {
           paletteChoice.title = stmt.value as typeof paletteChoice.title;
         }
+        if (stmt.property === 'title-align' && ['left', 'center', 'right'].includes(stmt.value)) {
+          paletteChoice.titleAlign = stmt.value as typeof paletteChoice.titleAlign;
+        }
+        if (stmt.property === 'title-position' && ['top', 'bottom'].includes(stmt.value)) {
+          paletteChoice.titlePosition = stmt.value as typeof paletteChoice.titlePosition;
+        }
+        if (stmt.property === 'arrows' && ['on', 'off'].includes(stmt.value)) {
+          paletteChoice.arrows = stmt.value as typeof paletteChoice.arrows;
+        }
         break;
       case 'word':
         wordChoices[stmt.name] = stmt.text;
+        break;
+      case 'size':
+        if (stmt.property === 'width') sizeWidth = stmt.value;
+        else sizeHeight = stmt.value;
         break;
       case 'constraint':
         constraints.push(stmt);
@@ -728,6 +748,11 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
         zones: paletteChoice.zones,
         connections: paletteChoice.connections,
         title: paletteChoice.title,
+        titleAlign: paletteChoice.titleAlign,
+        titlePosition: paletteChoice.titlePosition,
+        arrows: paletteChoice.arrows,
+        width: sizeWidth,
+        height: sizeHeight,
         words: wordChoices,
       },
     },
@@ -1168,6 +1193,39 @@ function applyStyle(diagnostics: Diagnostic[], stmt: import('../parser/ast.js').
       code: 'PSDL001_UNKNOWN_STATEMENT',
       severity: 'error',
       message: `Unknown title value '${stmt.value}'.`,
+      line: stmt.loc.line,
+      column: stmt.loc.column,
+      offset: stmt.loc.offset,
+      length: 5,
+    });
+  }
+  if (stmt.property === 'title-align' && !['left', 'center', 'right'].includes(stmt.value)) {
+    diagnostics.push({
+      code: 'PSDL001_UNKNOWN_STATEMENT',
+      severity: 'error',
+      message: `Unknown title-align value '${stmt.value}'.`,
+      line: stmt.loc.line,
+      column: stmt.loc.column,
+      offset: stmt.loc.offset,
+      length: 5,
+    });
+  }
+  if (stmt.property === 'title-position' && !['top', 'bottom'].includes(stmt.value)) {
+    diagnostics.push({
+      code: 'PSDL001_UNKNOWN_STATEMENT',
+      severity: 'error',
+      message: `Unknown title-position value '${stmt.value}'.`,
+      line: stmt.loc.line,
+      column: stmt.loc.column,
+      offset: stmt.loc.offset,
+      length: 5,
+    });
+  }
+  if (stmt.property === 'arrows' && !['on', 'off'].includes(stmt.value)) {
+    diagnostics.push({
+      code: 'PSDL001_UNKNOWN_STATEMENT',
+      severity: 'error',
+      message: `Unknown arrows value '${stmt.value}'.`,
       line: stmt.loc.line,
       column: stmt.loc.column,
       offset: stmt.loc.offset,

@@ -1,7 +1,7 @@
 import { LitElement, html } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import { EditorState } from '@codemirror/state';
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection } from '@codemirror/view';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, hoverTooltip } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { searchKeymap } from '@codemirror/search';
 import { autocompletion } from '@codemirror/autocomplete';
@@ -70,6 +70,7 @@ export class PsdlEditor extends LitElement {
           activateOnTyping: true,
           maxRenderedOptions: 50,
         }),
+        keywordHoverTooltip,
         linter(() => this.toCmDiagnostics(this.marks)),
         lintGutter(),
         EditorView.updateListener.of((v) => {
@@ -147,6 +148,64 @@ export class PsdlEditor extends LitElement {
     };
   }
 }
+
+/** Short, hover-only descriptions for PSDL keywords — same words as
+ * STATEMENT_COMPLETIONS below, phrased as a one-line explanation rather
+ * than a completion snippet. Keyed by the exact word CodeMirror finds
+ * under the cursor (so multi-word statements like `orientation` are
+ * keyed by their first token, not the whole line). */
+const KEYWORD_HELP: Record<string, string> = {
+  diagram: 'Root statement. One PSDL file contains exactly one `diagram "Title" { ... }`.',
+  orientation: 'Axis direction: `horizontal` (default) or `vertical`.',
+  voltage: 'Diagram nominal voltage, e.g. `voltage 11 kV` — used to convert MVA criteria to amps.',
+  ct: 'Current-transformer ratio, e.g. `ct 400/1 A` — used for `show secondary`.',
+  show: 'Which equivalent quantities to display alongside the selected value: `entered`, `current`, `mva`, `secondary`.',
+  view: 'Layout density: `report` (full detail), `compact` (near-label, no shading), or `rail` (value rail only).',
+  scale: 'Axis scale: `auto`, `linear`, `log`, or `indicative` (ordered, non-calibrated spacing).',
+  range: 'Axis bounds: `auto`, `all`, `focus` (around controlling boundaries), or an explicit `LOW to HIGH kA`.',
+  word: 'Overrides a status word\'s displayed text, e.g. `word caution "Review"`.',
+  style: 'Visual options: `theme`, `palette`, `zones`, `connections`, `title`, `title-align`, `title-position`, `arrows`.',
+  size: 'Explicit canvas dimension in pixels: `size width N` and/or `size height N`.',
+  secondary: 'Second calibrated axis on the opposite side of the plot: `secondary axis top|bottom kA|MVA`.',
+  below: 'A criterion the selected value must stay ABOVE, e.g. `below "Maximum load" must 3.5 kA`.',
+  above: 'A criterion the selected value must stay BELOW, e.g. `above "Minimum fault" must 8 kA`.',
+  must: 'Mandatory requirement level — violating it is a hard error (`do-not-set` / `no-compliant-setting`).',
+  should: 'Advisory requirement level — contributes to the preferred (green) zone, not a hard limit.',
+  reference: 'Plots a value for context only — never enters the mandatory/preferred calculation.',
+  margin: 'Safety margin on a criterion, as a percentage (`margin 10%`) or absolute quantity (`margin 0.4 kA`).',
+  selected: 'The setting being evaluated: an explicit quantity, `midpoint`, `low`, `high`, or `none`. Label is optional and names the value.',
+  midpoint: 'Selection form: the midpoint of the preferred interval, optionally snapped with `step N kA`.',
+  low: 'Selection form: the lowest compliant setting (mandatoryInterval.minimum), optionally snapped with `step`.',
+  high: 'Selection form: the highest compliant setting (mandatoryInterval.maximum), optionally snapped with `step`.',
+  step: 'Rounds a derived selection onto a grid, e.g. `midpoint step 0.05 kA`.',
+  none: 'Requests analysis without a specific selected value.',
+};
+
+/** Hovering a PSDL keyword shows its one-line description — spec §Help:
+ * "keyword help MUST be available without leaving the editor." Matches
+ * the word under the pointer against KEYWORD_HELP; anything else (a
+ * string, number, or criterion label) gets no tooltip. */
+const keywordHoverTooltip = hoverTooltip((view, pos) => {
+  const { from, to, text } = view.state.doc.lineAt(pos);
+  let start = pos, end = pos;
+  while (start > from && /\w/.test(text[start - from - 1])) start--;
+  while (end < to && /\w/.test(text[end - from])) end++;
+  if (start === end) return null;
+  const word = text.slice(start - from, end - from);
+  const help = KEYWORD_HELP[word];
+  if (!help) return null;
+  return {
+    pos: start,
+    end,
+    above: true,
+    create() {
+      const dom = document.createElement('div');
+      dom.className = 'psdl-hover-help';
+      dom.textContent = help;
+      return { dom };
+    },
+  };
+});
 
 const STATEMENT_COMPLETIONS: { label: string; type: string; detail: string }[] = [
   { label: 'diagram', type: 'keyword', detail: 'diagram "Title" { ... }' },

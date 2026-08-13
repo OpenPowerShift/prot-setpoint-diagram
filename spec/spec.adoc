@@ -190,19 +190,19 @@ When the mandatory interval is empty (`no-compliant-setting`):
 
 == Selected value
 
-The selected statement has five forms.
+The selected statement has five forms. The label is OPTIONAL:
 
 [source,psdl]
 ----
-selected "Selected setting" 6.5 kA
-selected "Selected setting" 200 MVA
-selected "Selected setting" midpoint
-selected "Selected setting" midpoint step 0.05 kA
-selected "Selected setting" low
-selected "Selected setting" low step 0.05 kA
-selected "Selected setting" high
-selected "Selected setting" high step 0.05 kA
-selected "Selected setting" none
+selected "Feeder OCR pickup" 6.5 kA
+selected 200 MVA
+selected midpoint
+selected midpoint step 0.05 kA
+selected low
+selected low step 0.05 kA
+selected high
+selected high step 0.05 kA
+selected none
 ----
 
 * A literal quantity is taken at face value. The unit may be `A`, `kA`, `kVA` or `MVA`. When the value is in `kVA` or `MVA` the `voltage` statement is REQUIRED (or the quantity must carry its own `@ X kV`, see §Per-quantity voltage) and the renderer converts to amps. A quantity that lands outside every `must` original criterion is reported as `do-not-set` and emits a `PSDL109_SELECTED_OUTSIDE_MUST` diagnostic.
@@ -211,6 +211,12 @@ selected "Selected setting" none
 * `high` is the dual of `low`: it equals `mandatoryInterval.maximum` (the lowest `must above` original) rounded DOWN to the previous multiple of `step`. Same diagnostics and same status behaviour. Use `high` when the engineer wants the *highest possible* compliant setting — the relay will be the most sensitive, but still clear the must-above criteria.
 * `step` rounds the chosen value to the nearest settable increment, with exact ties rounded away from zero. The unit must be `A` or `kA`. A `step` value that is not positive emits `PSDL112_STEP_INVALID`. For `low` and `high` the rounding direction is fixed (up for `low`, down for `high`); for `midpoint` it follows the nearest-grid rule.
 * `none` requests analysis without selection and is useful for conflict diagrams.
+
+=== Selected-setting label
+
+The optional string preceding the selection's form NAMES the value — when present, a renderer MUST use it verbatim as the label shown against the selected marker (e.g. `selected "Feeder OCR pickup" 6.5 kA` reads "Feeder OCR pickup", not "Selected"), taking precedence over `word selected`. When absent, the renderer falls back to `word selected` if set, otherwise a default word ("Selected" in English). A renderer MUST NOT silently ignore a given label.
+
+The label (or its fallback) is drawn near the top of the plot, above the marker. The selected value's own NUMBER — the quantity itself, and any `show` equivalents — is a separate element drawn AT or BELOW the calibrated axis, not appended to the label above it. This keeps the reader's eye on one place for "which setting is this" (the label) and one place for "what is its numeric position" (the axis).
 
 == Selected-setting percentages
 
@@ -234,8 +240,8 @@ Once a mandatory criterion is crossed (`do-not-set`), the renderer SHOULD report
 
 A renderer MUST annotate the preferred (green) zone itself with these labels, adjacent to the zone, rather than place them in a text line elsewhere on the page — the zone annotation is the ONE place they appear, so the status detail line MUST NOT repeat them. The selected-value label MUST be positioned above this annotation (and above a `secondary axis top`, if present), since it is the more important of the two and reads first.
 
-* Vertical orientation: each label is positioned at its OWN boundary's actual axis position, not at a shared "top/bottom of band" position — a renderer MUST NOT anchor both labels to whichever end of the band has more room, since on a tall band that can place a label far from the value it names (e.g. the lower boundary's label drifting up next to the upper boundary). Each label independently prefers just inside the band next to its own marker; if that would land on the selected line or its label, it MUST fall back to just outside the band on its own side instead, still adjacent to the band and still tied to its own position. If a label's own position leaves no clear spot on either side (a very short band with the selection on top of it), the renderer MAY drop that one label; if both labels end up within a row of each other, merge them into one line rather than overlap.
-* Horizontal orientation: the band spans the full plot height, so labels are drawn in their own row immediately adjacent to the plot instead (with the selected label, and any `secondary axis top`, stacked above that row). When two labels would collide at their true x positions (a narrow preferred interval), a renderer SHOULD merge them into a single combined label rather than let them overlap or arbitrarily drop one, e.g. `5.5 kA +15.5% · 7.2 kA -11.8%`.
+* Vertical orientation: each label is positioned at its OWN boundary's actual axis position, hugging the axis itself, not at a shared "top/bottom of band" position — a renderer MUST NOT anchor both labels to whichever end of the band has more room, since on a tall band that can place a label far from the value it names (e.g. the lower boundary's label drifting up next to the upper boundary). Each label independently prefers just inside the band next to its own marker; if that would land on the selected line or its label, it MUST fall back to just outside the band on its own side instead, still adjacent to the band and still tied to its own position. A short pale leader connects the label back to its true boundary position on the axis whenever it had to move. If a label's own position leaves no clear spot on either side (a very short band with the selection on top of it), the renderer MAY drop that one label; if both labels end up within a row of each other, merge them into one line rather than overlap.
+* Horizontal orientation: the band spans the full plot height, so labels are drawn in their own row immediately adjacent to the plot instead (with the selected label, and any `secondary axis top`, stacked above that row). Each label renders as two stacked lines — the boundary's kA value, then its signed percentage — and is flush-aligned against its OWN boundary, growing INWARD into the green zone it describes: the lower edge's text starts at the boundary and grows right, the upper edge's text ends at the boundary and grows left. This means the two labels only compete for space when the green band itself is narrow, rather than always contending for room around independently-centred positions. When they would still collide (a narrow preferred interval), a renderer SHOULD merge them into a single two-line block centred between the two boundaries rather than let them overlap or arbitrarily drop one, e.g. `5.5 kA · 7.2 kA` over `+15.5% · -11.8%`.
 
 == Quantities and expressions
 
@@ -394,6 +400,16 @@ Default: `auto`.
 Zero is not forced onto a linear axis.
 A renderer MUST NOT omit a value without an explicit off-range marker containing the exact value and unit.
 
+=== Size
+
+[source,psdl]
+----
+size width 1400
+size height 600
+----
+
+`size width` and `size height` are independent, both OPTIONAL singletons — a diagram usually only needs to pin one axis (e.g. "make it full width for this report layout") and let the other stay content-driven. Each takes a plain pixel number (200–20000). When given, it overrides the renderer's own content-driven default for that axis; a render-time request (e.g. a CLI `--width` flag) takes precedence over `size` for that one render, since it is a more specific, per-invocation choice.
+
 == Custom words
 
 [source,psdl]
@@ -421,6 +437,9 @@ style palette accessible
 style zones subtle
 style connections pale
 style title on
+style title-align left
+style title-position top
+style arrows on
 ----
 
 `theme` values: `light`, `dark`, `print`, `monochrome`.
@@ -428,8 +447,11 @@ style title on
 `zones` values: `off`, `subtle`, `full`.
 `connections` values: `off`, `pale`, `rows`.
 `title` values: `on`, `off`. When `off`, the renderer MUST NOT draw the diagram title, and SHOULD reclaim the vertical space it would have used — useful when a report's own caption already names the diagram.
+`title-align` values: `left`, `center`, `right` — horizontal position of the title text within the canvas.
+`title-position` values: `top`, `bottom` — whether the title (and its divider) renders above the plot, in its usual place, or as its own row at the very bottom of the canvas, below the status callout.
+`arrows` values: `on`, `off`. Controls the small acceptable-direction arrow drawn next to each margin-adjusted boundary. When `off`, the renderer MUST NOT draw it — the margin value and leader already convey the same boundary, and a reader who finds the arrow redundant can drop it without losing information.
 
-Defaults are `print`, `accessible`, `subtle` for report view, `pale` connections, and `title on`.
+Defaults are `print`, `accessible`, `subtle` for report view, `pale` connections, `title on`, `title-align left`, `title-position top`, and `arrows on`.
 An implementation MAY add namespaced style extensions. Unknown unnamespaced style properties are errors.
 
 == Normative visual encoding
@@ -439,7 +461,7 @@ An implementation MAY add namespaced style extensions. Unknown unnamespaced styl
 * Margin-adjusted boundary: open circle with coloured outline.
 * Criterion-to-margin distance: thick coloured segment.
 * Acceptable direction: short arrow immediately outside the open circle.
-* Selected value: orange or otherwise high-contrast line and filled marker.
+* Selected value: orange or otherwise high-contrast line and filled marker. In horizontal orientation the marker sits on the axis itself, not mid-plot — a fixed mid-plot position can land in whatever criterion row happens to be there, colliding with that row's own marker or value text; the axis is a lane nothing else occupies.
 * Lower criterion family: teal in the accessible palette.
 * Upper criterion family: blue in the accessible palette.
 * Name association: pale leader with no arrowhead.
@@ -469,11 +491,13 @@ The following algorithm is normative in outcome and informative in implementatio
 . If gutter leaders are difficult to trace, use alternating pale row strips.
 . Stagger numeric labels above and below markers before moving criterion names.
 . Combine identical positions into one marker with `×N` and list labels in the gutter.
+. If two markers' full [criterion, margin] spans overlap along the calibrated axis — which a large margin percentage can produce even when the two criteria's own values are far apart — spread them into narrow side-by-side columns (interval-graph colouring on the full span, not just the criterion's own point) rather than let the bars render as one indistinguishable blob.
 . Never allow a label to overlap another label, marker, selected line, status callout or plot boundary.
 . Never allow a pale association leader to cross another criterion row.
 
-The plot MUST reserve asymmetric gutters based on measured labels rather than fixed equal margins.
-The renderer SHOULD keep five to eight major ticks and MUST include units on visible ticks.
+The plot MUST reserve asymmetric gutters based on measured labels rather than fixed equal margins. The pure outer edge margin — space with no functional content, between the canvas boundary and the outermost gutter/label — SHOULD be small (a few pixels), not a large fixed inset; the gutters themselves, sized from actual label measurements, are what reserve the real functional space.
+The renderer SHOULD keep five to eight major ticks. Unit disambiguation: showing the unit once, on the single outermost tick, is sufficient when every visible tick shares one unit; when they don't (an indicative or very-wide-range axis can mix sub-1kA and multi-kA values on the same axis), the renderer MUST show the unit on every tick instead, since a bare number would be genuinely ambiguous.
+A `secondary axis` MUST be styled to read as an axis — matching the primary axis's own line weight and tick form — not as a visually distinct decoration.
 
 == Autorange
 
@@ -510,7 +534,7 @@ Each diagnostic contains a stable code, severity, message and source span.
 === Parse and structure errors
 
 `PSDL001_UNKNOWN_STATEMENT`:: Unknown statement or keyword.
-`PSDL002_DUPLICATE_SINGLETON`:: Duplicate orientation, voltage, CT, view, scale or range.
+`PSDL002_DUPLICATE_SINGLETON`:: Duplicate orientation, voltage, CT, view, scale, range, a `style` property, a `word` name, or a `size` dimension.
 `PSDL003_STRING_REQUIRED`:: Missing or invalid quoted label.
 `PSDL004_EXPRESSION_INVALID`:: Malformed arithmetic expression.
 `PSDL005_UNIT_UNKNOWN`:: Unsupported unit.

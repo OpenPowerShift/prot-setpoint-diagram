@@ -242,6 +242,15 @@ psdl-editor {
   border: 1px solid var(--psdl-border) !important;
 }
 
+.psdl-hover-help {
+  max-width: 320px;
+  padding: 6px 10px;
+  font-family: var(--psdl-sans);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--psdl-fg);
+}
+
 .cm-tooltip-autocomplete > ul > li[aria-selected] {
   background: var(--psdl-accent) !important;
   color: var(--psdl-bg) !important;
@@ -455,6 +464,47 @@ psdl-editor {
 }
 
 .psdl-guide-tabs .psdl-spacer { flex: 1; }
+
+.psdl-guide-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.psdl-guide-search input[type="search"] {
+  background: var(--psdl-bg-sunken);
+  color: var(--psdl-fg);
+  border: 1px solid var(--psdl-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-family: var(--psdl-font);
+  font-size: 12px;
+  width: 160px;
+  outline: none;
+}
+
+.psdl-guide-search input[type="search"]:focus {
+  border-color: var(--psdl-accent);
+}
+
+.psdl-search-count {
+  font-size: 11px;
+  color: var(--psdl-fg-muted);
+  min-width: 36px;
+  text-align: center;
+}
+
+mark.psdl-search-hit {
+  background: var(--psdl-warning);
+  color: var(--psdl-bg-sunken);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+mark.psdl-search-hit.is-current {
+  background: var(--psdl-accent);
+  color: var(--psdl-bg);
+}
 
 .psdl-guide-content {
   flex: 1;

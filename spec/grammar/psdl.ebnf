@@ -1,7 +1,7 @@
 document        = diagram, EOF ;
 diagram         = "diagram", string, "{", { statement }, "}" ;
 statement       = orientation | voltage | ct | show | view | scale | range
-                | word | style | secondary_axis | constraint | selection ;
+                | word | style | secondary_axis | size | constraint | selection ;
 orientation     = "orientation", ( "horizontal" | "vertical" ) ;
 voltage         = "voltage", expression, "kV" ;
 ct              = "ct", number, "/", number, "A" ;
@@ -14,21 +14,28 @@ word            = "word", word_name, string ;
 word_name       = "do-not-set" | "caution" | "recommended" | "selected"
                 | "no-recommended" | "no-compliant" ;
 style           = "style", style_property, style_value ;
+(* style_property includes "title-align" ("left" | "center" | "right")
+   and "title-position" ("top" | "bottom"), in addition to theme,
+   palette, zones, connections and title. *)
 secondary_axis  = "secondary", "axis", ( "top" | "bottom" ), ( "kA" | "MVA" ), [ voltage_override ] ;
 (* horizontal orientation only; a renderer MUST ignore this statement in
    vertical orientation. "MVA" with no voltage available (neither this
    statement's own "@" nor a diagram-level "voltage") is an error. *)
+size            = "size", ( "width" | "height" ), number ;
+(* pixels, 200..20000; "size width" and "size height" are independent
+   optional singletons, see §Size *)
 constraint      = direction, string, requirement, quantity, [ margin ] ;
 direction       = "above" | "below" ;
 requirement     = "must" | "should" | "reference" ;
 (* a "reference" constraint MUST NOT carry a margin — it never enters
    the mandatory/preferred interval calculation *)
 margin          = "margin", ( percentage | quantity ) ;
-selection       = "selected", string, ( quantity
+selection       = "selected", [ string ], ( quantity
                                 | "midpoint", [ step ]
                                 | "low",      [ step ]
                                 | "high",     [ step ]
                                 | "none" ) ;
+(* the label, when given, NAMES the value — see §Selected-setting label *)
 step            = "step", quantity ;
 quantity        = expression, unit, [ voltage_override ] ;
 voltage_override= "@", expression, "kV" ;

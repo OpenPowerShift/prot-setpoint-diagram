@@ -13,12 +13,17 @@ interface RenderOptions {
  * Layout (spec §Layout and §Autorange).
  *
  * The plot is a single horizontal (or vertical) band. Each criterion gets
- * its OWN ROW, vertically distributed so labels don't collide:
+ * its OWN ROW; lower- and upper-family rows now SHARE the same row
+ * sequence (lower labels/values sit toward the lower end of the axis,
+ * upper toward the higher end, so at typical axis ranges they occupy
+ * different x and don't collide) rather than each family getting its own
+ * half of the plot — this is what keeps the diagram compact instead of
+ * reserving two full stacks' worth of height when there's only one or
+ * two criteria per side.
  *
  *   top of plot ────────────────────────────────────────
- *     [upper-criteria]  labels on RIGHT, leaders pull left
- *   middle of plot ────────────────────────────────────
- *     [lower-criteria]  labels on LEFT, leaders pull right
+ *     row 0: lower-family dot (left-ish) ... upper-family dot (right-ish)
+ *     row 1: ...
  *   bottom of plot ─────────────────────────────────────
  *
  * For lower criteria, the label sits to the LEFT of the markers, with a
@@ -29,7 +34,8 @@ interface RenderOptions {
  *
  * The status callout sits BELOW the axis, not in the title block.
  * Selected value is a vertical orange line spanning the full plot with
- * an "SELECTED X kA" annotation near the top.
+ * a "SELECTED" word label near the top and its numeric value(s) on or
+ * just below the axis.
  */
 export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
   const fs = opts.fontSize ?? 14;
@@ -37,10 +43,13 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
   /* Default canvas size is content-driven rather than a fixed 1400×540 —
    * a 2-criterion diagram doesn't need the same canvas as a 6-criterion
    * one, and vertical orientation needs a narrow, tall canvas (see the
-   * spec's own vertical reference figure), not a wide, short one. */
+   * spec's own vertical reference figure), not a wide, short one. A
+   * `size width`/`size height` statement overrides either axis
+   * explicitly (spec §Size); render-time opts (CLI --width) win over
+   * that, since they're a more specific, per-render request. */
   const { width: defaultWidth, height: defaultHeight } = defaultCanvasSize(model, o, fs);
-  const declareWidth = opts.width ?? defaultWidth;
-  const declareHeight = opts.height ?? defaultHeight;
+  const declareWidth = opts.width ?? model.choices.width ?? defaultWidth;
+  const declareHeight = opts.height ?? model.choices.height ?? defaultHeight;
   const theme = THEMES[model.choices.theme] ?? THEMES.print;
   const palette = PALETTES[model.choices.palette] ?? PALETTES.accessible;
 
@@ -51,6 +60,9 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
    * previous approach) let one long label eat both sides and crush the
    * calibrated axis between them. */
   const { left: leftGutter, right: rightGutter } = horizontalGutters(model, fs);
+
+  const hasSelection = Number.isFinite(model.selection.value_A);
+  const hasIndicative = axisIsIndicative(model);
 
   /* A `secondary axis` (horizontal only) reserves its own line/ticks/
    * labels row on whichever side it's declared, on top of the usual
@@ -68,10 +80,27 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
    * shrinking the gap it already had. */
   const hasZonePercent = o === 'horizontal' && !!model.selectedPercents && model.selectedPercents.length > 0;
   const topStackHeight = (hasZonePercent ? ZONE_PERCENT_ROW : 0) + (hasSecondaryTop ? SECONDARY_TOP_ROW : 0);
+
+  const titleOn = model.choices.title !== 'off';
+  const titleAtBottom = titleOn && model.choices.titlePosition === 'bottom';
+  const titleAtTop = titleOn && !titleAtBottom;
+
   const padL = PAD_L;
   const padR = PAD_R;
-  const padT = (model.choices.title === 'off' ? 28 : 60) + topStackHeight;  /* title + selected label space */
-  const padB = 80 + (hasSecondaryBottom ? SECONDARY_AXIS_H : 0);  /* axis + status callout */
+  const padT = (titleAtTop ? 60 : 28) + topStackHeight;  /* title + selected label space */
+
+  /* Bottom stack (horizontal only): axis line/ticks, the selected
+   * value's own row (spec: written on/below the axis, not repeated
+   * above it), the indicative-scale notice, and an optional secondary
+   * axis — each reserved only when actually present, stacked in that
+   * order immediately under the plot, with the status callout and an
+   * optional bottom title below all of it. */
+  const bottomAxisRow = o === 'horizontal' ? AXIS_TICK_ROW : 0;
+  const bottomSelectedRow = o === 'horizontal' && hasSelection ? SELECTED_VALUE_ROW : 0;
+  const bottomIndicativeRow = o === 'horizontal' && hasIndicative ? INDICATIVE_ROW : 0;
+  const bottomSecondary = hasSecondaryBottom ? SECONDARY_AXIS_H : 0;
+  const statusArea = o === 'horizontal' ? STATUS_AREA : (hasSelection ? 16 : STATUS_AREA);
+  const padB = bottomAxisRow + bottomSelectedRow + bottomIndicativeRow + bottomSecondary + statusArea + (titleAtBottom ? BOTTOM_TITLE_ROW : 0);
 
   const plotW = declareWidth - padL - padR;
   const plotH = declareHeight - padB - padT;
@@ -79,11 +108,12 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
   const axis = model.axis;
   const ticks = axis.scale === 'indicative' ? collectIndicativeValues(model) : buildTicks(axis.minimum, axis.maximum, axis.scale);
 
-  /* Place each constraint on its own row. The two families occupy
-   * opposite halves of the plot — lower in the lower half, upper in the
-   * upper half — but the spec allows for interleaving; the practical
-   * outcome is that they never collide. */
-  const rows = layoutRows(model.constraints, o, plotW, plotH, padT);
+  /* Place each constraint on its own row. Lower- and upper-family rows
+   * now SHARE the same row sequence (staggered by half a pitch so their
+   * dots don't land at the exact same y even when values happen to be
+   * close) rather than each family getting its own half of the plot —
+   * see the module doc comment above. */
+  const rows = layoutRows(model.constraints, o, plotH, padT);
 
   /* Background zones — same on every view that requests them. */
   const zoneParts: string[] = [];
@@ -115,12 +145,14 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
 
   parts.push(`<g data-layer="chrome">`);
   /* Title + selected label above the plot */
-  parts.push(header(model, declareWidth, padT, fs, theme, palette));
+  if (titleAtTop) parts.push(header(model, declareWidth, padL, padR, fs, theme));
 
-  /* Spec §Scale: indicative scale MUST show this notice — the axis is
-   * ordered but not calibrated to value. */
-  if (axis.scale === 'indicative') {
-    parts.push(`<text data-role="indicative-notice" x="${declareWidth - padR}" y="${padT - 12}" font-size="${fs - 2}" font-weight="700" text-anchor="end" letter-spacing="0.3" fill="${theme.callout}">Indicative spacing — not to scale</text>`);
+  /* Spec §Scale: indicative scale MUST show a notice that the axis is
+   * ordered but not calibrated to value — placed just below the axis
+   * (left-aligned, matching normal reading order) rather than floating
+   * above the plot disconnected from the axis it describes. */
+  if (hasIndicative) {
+    parts.push(indicativeNotice(o, padL, padT, plotH, leftGutter, fs, theme, bottomAxisRow + bottomSelectedRow));
   }
   parts.push(`</g>`);
 
@@ -140,7 +172,6 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
   }
   parts.push(`</g>`);
 
-  const hasSelection = Number.isFinite(model.selection.value_A);
   const selY = o === 'vertical' && hasSelection ? verticalYClamped(model, axis, model.selection.value_A / 1000, padT, plotH) : null;
 
   /* Spec §Layout step 9: "Combine identical positions into one marker
@@ -150,24 +181,35 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
    * secondary members never get their own marker. */
   const constraintGroups = groupConstraints(model.constraints);
 
-  /* Vertical only. Two distinct collision problems, both driven by how
+  /* Vertical only. Three distinct collision problems, all driven by how
    * close criterion values are on the calibrated axis:
    *  - LABEL TEXT collides: declutterVerticalLabels moves the text (and
    *    its leader) vertically, away from neighbours and the
-   *    SELECTED/status block. This alone doesn't stop dots colliding —
-   *    it only ever moved text.
-   *  - MARKER DOTS collide: two values close enough that their ~12px
-   *    dots would land on top of each other. assignVerticalMarkerColumns
-   *    spreads those into a couple of narrow side-by-side columns so
-   *    each stays visible and near its true position, rather than
-   *    stacking invisibly on top of one another. */
+   *    SELECTED/status block. This alone doesn't stop dots or bars
+   *    colliding — it only ever moves text.
+   *  - MARKER DOTS / CRITERION BARS overlap: two criteria whose full
+   *    [criterion, margin] span overlaps in y (not just their bare
+   *    value) render as one indistinguishable blob — a large margin
+   *    percentage can pull two otherwise well-separated criteria's
+   *    boundary ends into the same few pixels even though their VALUES
+   *    are far apart. assignVerticalBarColumns spreads any set of
+   *    overlapping bars into a couple of narrow side-by-side columns
+   *    (interval-graph colouring on the bar's full span) instead of
+   *    only checking the marker dot's own point.
+   */
   let vLabelY: number[] | null = null;
   let vMarkerX: number[] | null = null;
   if (o === 'vertical') {
     const repY = constraintGroups.map((g) => verticalYClamped(model, axis, g.representative.value_A / 1000, padT, plotH));
+    const bars = constraintGroups.map((g, i) => {
+      const c = g.representative;
+      if (c.boundary_A === null || !Number.isFinite(c.boundary_A)) return { lo: repY[i], hi: repY[i] };
+      const boundaryY = verticalYClamped(model, axis, c.boundary_A / 1000, padT, plotH);
+      return { lo: Math.min(repY[i], boundaryY), hi: Math.max(repY[i], boundaryY) };
+    });
     const obstacle = selY !== null ? { top: selY - 26, bottom: selY + 20 + fs + 3 } : null;
     const declutteredY = declutterVerticalLabels(repY, obstacle, fs + 5);
-    const columnOffset = assignVerticalMarkerColumns(repY);
+    const columnOffset = assignVerticalBarColumns(bars);
     vLabelY = new Array(model.constraints.length).fill(null);
     vMarkerX = new Array(model.constraints.length).fill(0);
     constraintGroups.forEach((g, gi) => {
@@ -196,7 +238,7 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
    * selected line, not at a fixed canvas position) rather than centred
    * on the whole canvas. */
   if (hasSelection) {
-    parts.push(drawSelection(model, axis, padL, padT, plotW, plotH, o, fs, palette, leftGutter, rightGutter, topStackHeight));
+    parts.push(drawSelection(model, axis, padL, padT, plotW, plotH, o, fs, palette, leftGutter, rightGutter, topStackHeight, bottomAxisRow));
   }
 
   if (o === 'vertical' && selY !== null) {
@@ -215,28 +257,47 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
       const halfWidth = Math.max(140, measureLabel(detail, fs - 1) / 2 + 20);
       anchorX = Math.min(Math.max(selX, padL + halfWidth), declareWidth - padR - halfWidth);
     }
-    parts.push(statusCallout(model, anchorX, declareHeight, fs, theme, palette));
+    parts.push(statusCallout(model, anchorX, declareHeight, fs, theme, palette, titleAtBottom));
   }
   parts.push(`</g>`);
+
+  if (titleAtBottom) {
+    parts.push(`<g data-layer="chrome-bottom">`);
+    parts.push(header(model, declareWidth, padL, padR, fs, theme, declareHeight));
+    parts.push(`</g>`);
+  }
 
   parts.push(`</svg>`);
   return parts.join('\n');
 }
 
+function axisIsIndicative(model: Resolved): boolean {
+  return model.axis.scale === 'indicative';
+}
+
 /* ============================================================ pieces */
 
-const PAD_L = 40;
-const PAD_R = 40;
+/** Outer canvas edge margin — deliberately tight (spec §Layout: "no more
+ * than a few pixels of pure dead space at the canvas edge"). Functional
+ * space for labels is reserved separately via the measured gutters
+ * (horizontalGutters) and the vertical label columns — this is only the
+ * blank strip between the outermost content and the SVG boundary. */
+const PAD_L = 10;
+const PAD_R = 10;
 /** Narrowest calibrated axis we will ever render — the canvas grows
- * rather than let long labels squeeze the axis below this. */
+ * rather than let long labels squeeze the axis below this. Log scale
+ * gets a wider floor: a decade of separation reads as cramped in the
+ * same width a linear axis is comfortable with. */
 const MIN_AXIS_WIDTH = 400;
+const MIN_AXIS_WIDTH_LOG = 560;
 /**
- * Vertical distance between criterion rows of the same family. Each row
- * draws its value text above the marker and its margin text below, so
- * the pitch must clear both — at the previous 22px they overlapped as
- * soon as a family had three or more criteria.
+ * Vertical distance between criterion rows. Lower- and upper-family rows
+ * now share the same row sequence (staggered by half a pitch) instead of
+ * each family getting its own half of the plot, so this only needs to
+ * clear one row's own value/margin text, not two families stacked
+ * end-to-end.
  */
-const ROW_PITCH = 42;
+const ROW_PITCH = 38;
 /** Extra vertical space a `secondary axis bottom` reserves below the
  * plot — line + ticks + one row of labels, clear of the primary axis's
  * own tick-label row. (`top` uses SECONDARY_TOP_ROW instead — see the
@@ -247,10 +308,27 @@ const SECONDARY_AXIS_H = 76;
  * row, if that's also present) rather than floating far above it. */
 const SECONDARY_TOP_ROW = 34;
 /** Horizontal only: height of the zone percent annotations' row,
- * immediately adjacent to the plot/green band — criterion rows already
- * fill the plot itself top to bottom, so there's nowhere inside it to
- * put a third line of text the way vertical's slim band allows. */
-const ZONE_PERCENT_ROW = 18;
+ * immediately adjacent to the plot/green band — two stacked lines (the
+ * boundary's kA value, then its signed percentage) so long text has
+ * somewhere to go instead of being crushed into a single overflowing
+ * line. */
+const ZONE_PERCENT_ROW = 34;
+/** Horizontal only: axis line + ticks + tick-number row, directly under
+ * the plot. */
+const AXIS_TICK_ROW = 26;
+/** Horizontal only: the selected value's own numeric row, on/just below
+ * the axis — spec §Selected-setting label: the value is written at the
+ * axis, not repeated above the plot alongside its word label. */
+const SELECTED_VALUE_ROW = 20;
+/** Height reserved for the "Indicative spacing — not to scale" notice,
+ * placed just below the axis rather than floating above the plot. */
+const INDICATIVE_ROW = 18;
+/** Room for the status callout (state pill + detail line) at the very
+ * bottom of the canvas. */
+const STATUS_AREA = 56;
+/** `style title-position bottom`: height of the title's own row when it
+ * renders below everything else instead of above the plot. */
+const BOTTOM_TITLE_ROW = 40;
 
 /**
  * Spec §Layout step 9: "Combine identical positions into one marker
@@ -342,23 +420,24 @@ function declutterVerticalLabels(naturalY: number[], obstacle: { top: number; bo
 
 /**
  * Vertical marker-collision avoidance — distinct from label decluttering
- * above, which only ever moves TEXT. Nothing kept the DOTS themselves
- * apart: two criteria close enough in value put their ~12px-diameter
- * markers within a few pixels of each other, rendering as one
- * indistinguishable blob. When a run of values is within
- * MARKER_COLLISION_GAP of its neighbour, this spreads that run across a
- * few narrow side-by-side columns (capped at MARKER_MAX_COLUMNS, cycling
- * back for anything denser) instead — each dot stays near its true y and
- * visibly separate, rather than moving vertically the way a label would.
+ * above, which only ever moves TEXT. Nothing kept the DOTS/BARS
+ * themselves apart: two criteria whose full [criterion, margin] span
+ * overlaps in y — which a large margin percentage can produce even when
+ * the two criteria's own VALUES are far apart — render as one
+ * indistinguishable blob. This does proper interval-graph colouring on
+ * each group's full bar span [lo, hi]: sort by lo, and give each bar the
+ * lowest-numbered column whose most recent occupant ends clear of this
+ * bar's start. Columns cycle back (capped at MARKER_MAX_COLUMNS) for
+ * anything denser than that.
  */
-const MARKER_COLLISION_GAP = 14; // ~2x dot radius (r=6) plus breathing room
-const MARKER_COLUMN_PITCH = 16;
+const MARKER_COLLISION_GAP = 20; // ~2x dot radius (r=6) plus label-text breathing room
+const MARKER_COLUMN_PITCH = 20;
 const MARKER_MAX_COLUMNS = 3;
 
-function assignVerticalMarkerColumns(naturalY: number[]): number[] {
-  const n = naturalY.length;
-  const offsets = new Array<number>(n).fill(0);
-  const order = naturalY.map((_, i) => i).sort((a, b) => naturalY[a] - naturalY[b]);
+function assignVerticalBarColumns(bars: { lo: number; hi: number }[]): number[] {
+  const n = bars.length;
+  const colOf = new Array<number>(n).fill(0);
+  const order = bars.map((_, i) => i).sort((a, b) => bars[a].lo - bars[b].lo);
 
   /* Column 0 is the unshifted centre; odd columns step right, even
    * columns (2, 4, ...) step left, so a 3-column cluster reads as
@@ -369,30 +448,26 @@ function assignVerticalMarkerColumns(naturalY: number[]): number[] {
     return col % 2 === 1 ? magnitude : -magnitude;
   };
 
-  let clusterStart = 0;
-  for (let k = 1; k <= order.length; k++) {
-    const atEnd = k === order.length || naturalY[order[k]] - naturalY[order[k - 1]] > MARKER_COLLISION_GAP;
-    if (!atEnd) continue;
-    const clusterSize = k - clusterStart;
-    if (clusterSize > 1) {
-      for (let m = 0; m < clusterSize; m++) {
-        offsets[order[clusterStart + m]] = columnOffset(m % MARKER_MAX_COLUMNS);
-      }
-    }
-    clusterStart = k;
+  const colEnd: number[] = [];
+  for (const i of order) {
+    let col = 0;
+    while (col < MARKER_MAX_COLUMNS - 1 && col < colEnd.length && colEnd[col] > bars[i].lo - MARKER_COLLISION_GAP) col++;
+    colOf[i] = col;
+    colEnd[col] = Math.max(colEnd[col] ?? -Infinity, bars[i].hi);
   }
-  return offsets;
+  return colOf.map(columnOffset);
 }
 
 /** Content-driven default canvas size — see call site for rationale. */
 function defaultCanvasSize(model: Resolved, o: 'horizontal' | 'vertical', fs: number): { width: number; height: number } {
-  const n = Math.max(model.constraints.length, 1);
+  const groups = groupConstraints(model.constraints);
+  const n = Math.max(groups.length, 1);
   if (o === 'vertical') {
     /* Width must fit the widest thing that lands in the label column:
      * a criterion's "name · value (margin X%)" text, or the status
      * detail line (which can run long for extreme log-scale ratios). */
     const labelX = verticalLabelX(40);
-    const longestCriterion = Math.max(0, ...groupConstraints(model.constraints).map((g) => {
+    const longestCriterion = Math.max(0, ...groups.map((g) => {
       const c = g.representative;
       const valueText = formatCondition(c.value_A) + (g.names.length > 1 ? ` ×${g.names.length}` : '') + voltageOverrideSuffix(c.entered);
       const m = marginLabel(c);
@@ -405,24 +480,48 @@ function defaultCanvasSize(model: Resolved, o: 'horizontal' | 'vertical', fs: nu
     }
     const width = Math.max(420, labelX + Math.max(longestCriterion, statusW) + 40);
     const titleAllowance = model.choices.title === 'off' ? 90 : 130;
-    return { width, height: Math.max(320, titleAllowance + n * 78) };
+    const logBonus = model.axis.scale === 'log' ? 80 : 0;
+    return { width, height: Math.max(320, titleAllowance + logBonus + n * 78) };
   }
-  const upperCount = model.constraints.filter((c) => c.direction === 'above').length;
-  const lowerCount = model.constraints.filter((c) => c.direction === 'below').length;
+  /* Lower- and upper-family rows share the same row sequence (see
+   * layoutRows) whenever it's safe to — see canShareRows — so the plot
+   * only needs to fit the LARGER family's row count once, rather than
+   * both families stacked in separate halves. When it isn't safe, both
+   * families still get their own half, so the height needs both. */
+  const upperCount = groups.filter((g) => g.representative.direction === 'above').length;
+  const lowerCount = groups.filter((g) => g.representative.direction === 'below').length;
   const maxFamily = Math.max(upperCount, lowerCount, 1);
+  const shareRows = canShareRows(model.constraints);
   /* Width: gutters are label-driven, so the canvas grows to keep the
    * calibrated axis at least MIN_AXIS_WIDTH rather than squeezing it. */
   const { left, right } = horizontalGutters(model, fs);
-  const width = Math.max(760, PAD_L + PAD_R + left + right + MIN_AXIS_WIDTH);
-  /* Height: each family stacks in its own half of the plot at ROW_PITCH
-   * spacing, and each row needs headroom for its value text (above) and
-   * margin text (below). Solve so the taller family fits its half. */
-  const halfNeed = (maxFamily - 1) * ROW_PITCH + 40;
-  const hasSecondaryTop = o === 'horizontal' && model.secondaryAxis?.position === 'top';
-  const hasSecondaryBottom = o === 'horizontal' && model.secondaryAxis?.position === 'bottom';
-  const hasZonePercent = o === 'horizontal' && !!model.selectedPercents && model.selectedPercents.length > 0;
-  const height = Math.max(280, padTB(model.choices.title !== 'off', hasSecondaryTop, hasSecondaryBottom, hasZonePercent) + 2 * halfNeed);
+  const minAxisWidth = model.axis.scale === 'log' ? MIN_AXIS_WIDTH_LOG : MIN_AXIS_WIDTH;
+  const width = Math.max(760, PAD_L + PAD_R + left + right + minAxisWidth);
+  /* Height: the shared row sequence needs headroom for its value text
+   * (above) and margin text (below) per row; the two-half fallback
+   * needs each family's own half, i.e. twice that. */
+  const rowsNeed = shareRows ? maxFamily * ROW_PITCH + 40 : 2 * (maxFamily * ROW_PITCH + 40);
+  const height = Math.max(240, padTB(model) + rowsNeed);
   return { width, height };
+}
+
+/**
+ * Whether the lower and upper criterion families can safely share one
+ * row sequence (spec §Layout: "much more compact ... numbers adjacent
+ * to the dots"). Safe exactly when their MARGIN-ADJUSTED extents don't
+ * overlap along the axis — lower values sit to one side, upper to the
+ * other, so a shared row never puts one family's marker/text under the
+ * other's. When margins are large enough to push the two families'
+ * extents into each other (e.g. a preferred-interval conflict, where
+ * the two boundaries have crossed by construction), sharing rows would
+ * visually collide the two families' bars/text — fall back to the
+ * safe two-half stack instead.
+ */
+function canShareRows(constraints: Constraint[]): boolean {
+  const lowerReach = constraints.filter((c) => c.direction === 'below').map((c) => Math.max(c.value_A, c.boundary_A ?? c.value_A));
+  const upperReach = constraints.filter((c) => c.direction === 'above').map((c) => Math.min(c.value_A, c.boundary_A ?? c.value_A));
+  if (lowerReach.length === 0 || upperReach.length === 0) return true;
+  return Math.max(...lowerReach) < Math.min(...upperReach);
 }
 
 /** Vertical padding the plot does not get to use (title + axis/status,
@@ -430,16 +529,36 @@ function defaultCanvasSize(model: Resolved, o: 'horizontal' | 'vertical', fs: nu
  * percent annotations' row, when present). Must mirror renderSvg's own
  * padT/padB formula, or the default canvas ends up sized for a
  * different stack than what actually gets drawn into it. */
-function padTB(titleOn: boolean, hasSecondaryTop: boolean, hasSecondaryBottom: boolean, hasZonePercent: boolean): number {
+function padTB(model: Resolved): number {
+  const o = model.choices.orientation;
+  const hasSecondaryTop = o === 'horizontal' && model.secondaryAxis?.position === 'top';
+  const hasSecondaryBottom = o === 'horizontal' && model.secondaryAxis?.position === 'bottom';
+  const hasZonePercent = o === 'horizontal' && !!model.selectedPercents && model.selectedPercents.length > 0;
+  const hasSelection = Number.isFinite(model.selection.value_A);
+  const hasIndicative = axisIsIndicative(model);
+  const titleOn = model.choices.title !== 'off';
+  const titleAtBottom = titleOn && model.choices.titlePosition === 'bottom';
+  const titleAtTop = titleOn && !titleAtBottom;
+
   const topStackHeight = (hasZonePercent ? ZONE_PERCENT_ROW : 0) + (hasSecondaryTop ? SECONDARY_TOP_ROW : 0);
-  return (titleOn ? 60 : 28) + topStackHeight + 80 + (hasSecondaryBottom ? SECONDARY_AXIS_H : 0);
+  const padT = (titleAtTop ? 60 : 28) + topStackHeight;
+
+  const bottomAxisRow = o === 'horizontal' ? AXIS_TICK_ROW : 0;
+  const bottomSelectedRow = o === 'horizontal' && hasSelection ? SELECTED_VALUE_ROW : 0;
+  const bottomIndicativeRow = o === 'horizontal' && hasIndicative ? INDICATIVE_ROW : 0;
+  const bottomSecondary = hasSecondaryBottom ? SECONDARY_AXIS_H : 0;
+  const statusArea = o === 'horizontal' ? STATUS_AREA : (hasSelection ? 16 : STATUS_AREA);
+  const padB = bottomAxisRow + bottomSelectedRow + bottomIndicativeRow + bottomSecondary + statusArea + (titleAtBottom ? BOTTOM_TITLE_ROW : 0);
+
+  return padT + padB;
 }
 
-/** Layout one row per constraint. Lower family occupies the lower half
- * of the plot, upper family the upper half. Each constraint on its own
- * row, evenly spaced. The vertical selected line spans the full plot
- * height — i.e. the row layout does NOT change where the line draws. */
-function layoutRows(constraints: Constraint[], o: 'horizontal' | 'vertical', plotW: number, plotH: number, padT: number): { cx: number; cy: number; labelX: number; labelY: number; labelAnchor: 'start' | 'end'; valueAbove: number; valueBelow: number; marginValueX: number }[] {
+/** Layout one row per constraint. Vertical distributes rows evenly down
+ * the whole plot as before. Horizontal now shares ONE row sequence
+ * between the lower and upper families (staggered by half a pitch)
+ * instead of splitting the plot into two family-only halves — see the
+ * module doc comment for why. */
+function layoutRows(constraints: Constraint[], o: 'horizontal' | 'vertical', plotH: number, padT: number): { cx: number; cy: number; labelX: number; labelY: number; labelAnchor: 'start' | 'end'; valueAbove: number; valueBelow: number; marginValueX: number }[] {
   const rows: { cx: number; cy: number; labelX: number; labelY: number; labelAnchor: 'start' | 'end'; valueAbove: number; valueBelow: number; marginValueX: number }[] = [];
   if (o !== 'horizontal') {
     for (let i = 0; i < constraints.length; i++) {
@@ -449,29 +568,36 @@ function layoutRows(constraints: Constraint[], o: 'horizontal' | 'vertical', plo
     }
     return rows;
   }
-  /* Horizontal: split lower and upper families and distribute each
-   * family into its own half of the plot so the labels never collide.
-   * Index by the original constraint position so rows[i] is the row
-   * for constraints[i]. */
+  /* Horizontal: split lower and upper families. When their margin-
+   * adjusted extents don't overlap (canShareRows), let them share the
+   * same row pitch, staggered by half a row so same-index dots from
+   * each family don't land at the exact same y even when their values
+   * happen to be close — this is what makes the common case compact.
+   * When the extents DO overlap (large margins, or a preferred/mandatory
+   * conflict where the two families' boundaries have crossed by
+   * construction), sharing would visually collide the two families'
+   * bars/text, so each family falls back to its own half of the plot
+   * instead — the safe, previous behaviour. Index by the original
+   * constraint position so rows[i] is the row for constraints[i]. */
   const lowerIdx: number[] = [];
   const upperIdx: number[] = [];
   for (let i = 0; i < constraints.length; i++) {
     if (constraints[i].direction === 'below') lowerIdx.push(i);
     else upperIdx.push(i);
   }
-  const upperTopY = padT + ROW_PITCH * 0.5;
-  const lowerTopY = padT + plotH * 0.5;
+  const shareRows = canShareRows(constraints);
+  const baseY = padT + ROW_PITCH * 0.5;
+  const lowerBaseY = shareRows ? baseY + ROW_PITCH * 0.5 : padT + plotH * 0.5 + ROW_PITCH * 0.5;
   for (let k = 0; k < upperIdx.length; k++) {
     const i = upperIdx[k];
-    const cy = upperTopY + k * ROW_PITCH;
-    rows[i] = { cx: 0, cy, labelX: 0, labelY: cy + 4, labelAnchor: 'start', valueAbove: -10, valueBelow: 22, marginValueX: 0 };
+    const cy = baseY + k * ROW_PITCH;
+    rows[i] = { cx: 0, cy, labelX: 0, labelY: cy + 4, labelAnchor: 'start', valueAbove: -11, valueBelow: 21, marginValueX: 0 };
   }
   for (let k = 0; k < lowerIdx.length; k++) {
     const i = lowerIdx[k];
-    const cy = lowerTopY + k * ROW_PITCH;
-    rows[i] = { cx: 0, cy, labelX: 0, labelY: cy + 4, labelAnchor: 'end', valueAbove: -10, valueBelow: 22, marginValueX: 0 };
+    const cy = lowerBaseY + k * ROW_PITCH;
+    rows[i] = { cx: 0, cy, labelX: 0, labelY: cy + 4, labelAnchor: 'end', valueAbove: -11, valueBelow: 21, marginValueX: 0 };
   }
-  void plotW;
   return rows;
 }
 
@@ -480,13 +606,49 @@ function measureLabel(text: string, fs: number): number {
   return text.length * fs * 0.58 + 16;
 }
 
-function header(model: Resolved, width: number, padT: number, fs: number, theme: { foreground: string }, palette: { selected: string }): string {
-  if (model.choices.title === 'off') return '';
+/**
+ * Title block. `titleAlign` (spec §Style: title-align) picks left /
+ * center / right within the canvas; `bottomY`, when given, renders the
+ * title as its own row at the BOTTOM of the canvas (spec: title-position
+ * bottom) instead of the usual top-of-canvas block — same text, same
+ * alignment rule, a divider on the opposite side of the text from the
+ * plot either way.
+ */
+function header(model: Resolved, width: number, padL: number, padR: number, fs: number, theme: { foreground: string }, bottomY?: number): string {
+  const align = model.choices.titleAlign;
+  const x = align === 'left' ? padL : align === 'right' ? width - padR : width / 2;
+  const anchor = align === 'left' ? 'start' : align === 'right' ? 'end' : 'middle';
+  if (bottomY !== undefined) {
+    const textY = bottomY - 12;
+    const lineY = bottomY - 24;
+    return `<g data-role="header" data-position="bottom">
+      <line x1="${padL}" y1="${lineY}" x2="${width - padR}" y2="${lineY}" stroke="#d0d7de" stroke-width="0.5"/>
+      <text x="${x}" y="${textY}" font-size="${fs + 6}" font-weight="700" text-anchor="${anchor}" fill="${theme.foreground}">${escapeText(model.title)}</text>
+    </g>`;
+  }
   return `<g data-role="header">
-    <text x="40" y="32" font-size="${fs + 6}" font-weight="700" fill="${theme.foreground}">${escapeText(model.title)}</text>
-    <line x1="40" y1="44" x2="${width - 40}" y2="44" stroke="#d0d7de" stroke-width="0.5"/>
+    <text x="${x}" y="32" font-size="${fs + 6}" font-weight="700" text-anchor="${anchor}" fill="${theme.foreground}">${escapeText(model.title)}</text>
+    <line x1="${padL}" y1="44" x2="${width - padR}" y2="44" stroke="#d0d7de" stroke-width="0.5"/>
   </g>`;
-  void padT; void palette.selected;
+}
+
+/** Spec §Scale: indicative scale MUST show a not-to-scale notice.
+ * Anchored just below the axis, left-aligned at the axis's own start —
+ * reads as an axis caption rather than a floating annotation, and does
+ * the same in both orientations. */
+function indicativeNotice(
+  o: 'horizontal' | 'vertical',
+  padL: number,
+  padT: number,
+  plotH: number,
+  leftGutter: number,
+  fs: number,
+  theme: { callout: string },
+  bottomAxisRow: number,
+): string {
+  const x = o === 'horizontal' ? padL + leftGutter : verticalAxisX(padL);
+  const y = o === 'horizontal' ? padT + plotH + bottomAxisRow + 14 : padT + plotH + 28;
+  return `<text data-role="indicative-notice" x="${x}" y="${y}" font-size="${fs - 2}" font-weight="700" text-anchor="start" letter-spacing="0.3" fill="${theme.callout}">Indicative spacing — not to scale</text>`;
 }
 
 function zones(
@@ -532,10 +694,11 @@ function zones(
   if (Number.isFinite(p.minimum) && Number.isFinite(p.maximum) && p.minimum > p.maximum) {
     out.push(zoneRect(model, axis, Math.min(p.minimum, p.maximum), Math.max(p.minimum, p.maximum), padL, padT, plotW, plotH, o, conflictColor, 0.45, leftGutter, rightGutter));
   }
-  /* Signed headroom, annotated INSIDE the top of the green zone itself —
-   * "5.5 kA +15.5%" — rather than only as a text line elsewhere on the
-   * page (this is now the ONE place these numbers appear; the footer
-   * status detail deliberately stops repeating them, see statusText). */
+  /* Signed headroom, annotated adjacent to the green zone itself —
+   * "5.5 kA" / "+15.5%" — rather than only as a text line elsewhere on
+   * the page (this is now the ONE place these numbers appear; the
+   * footer status detail deliberately stops repeating them, see
+   * statusText). */
   if (model.selectedPercents && model.selectedPercents.length > 0) {
     out.push(...zonePercentAnnotations(model, axis, padL, padT, plotW, plotH, o, palette, leftGutter, rightGutter));
   }
@@ -572,74 +735,71 @@ function zonePercentAnnotations(
    * consistent with the percentage already shown. */
   const boundaryFor = (line: NonNullable<Resolved['selectedPercents']>[number]): number | undefined =>
     line.edge === 'lower' ? model.preferredInterval.minimum : model.preferredInterval.maximum;
-  const textFor = (line: NonNullable<Resolved['selectedPercents']>[number], boundary_A: number) => {
+  const kaText = (boundary_A: number) => formatCondition(boundary_A);
+  const pctText = (line: NonNullable<Resolved['selectedPercents']>[number]) => {
     const sign = line.percent >= 0 ? '+' : '';
-    return `${formatCondition(boundary_A)} ${sign}${formatPercent(line.percent)}`;
+    return `${sign}${formatPercent(line.percent)}`;
   };
 
   if (o === 'horizontal') {
     const xL = padL + leftGutter;
     const xR = padL + plotW - rightGutter;
-    /* Adjacent to the plot/green band — the selected label was already
-     * pushed further up (topStackHeight, see renderSvg) to make room
-     * here, so this can sit right at the plot edge without colliding
-     * with it. Criterion rows fill the plot's own top edge top-to-
-     * bottom, so there's no clean spot for this text INSIDE the plot
-     * the way vertical's slim band allows. */
-    const y = padT - 4;
+    /* Two lines — the kA value, then the signed percentage beneath it —
+     * flush against the plot's top edge, adjacent to the band. */
+    const yKa = padT - 4 - 15;
+    const yPct = padT - 4;
     const positioned = lines
       .map((line) => {
         const boundary_A = boundaryFor(line);
         if (boundary_A === undefined || !Number.isFinite(boundary_A)) return null;
         const x = xL + scalePos(model, axis, boundary_A / 1000, xR - xL);
-        return { line, boundary_A, x, text: textFor(line, boundary_A) };
+        return { line, boundary_A, x, ka: kaText(boundary_A), pct: pctText(line) };
       })
-      .filter((v): v is { line: NonNullable<Resolved['selectedPercents']>[number]; boundary_A: number; x: number; text: string } => v !== null)
+      .filter((v): v is { line: NonNullable<Resolved['selectedPercents']>[number]; boundary_A: number; x: number; ka: string; pct: string } => v !== null)
       .sort((a, b) => a.x - b.x);
-    /* A narrow preferred interval puts both edges' labels close enough
-     * in x that "5.5 kA +15.5%" and "7.2 kA +11.8%" would run into each
-     * other — merge into one centred label rather than let them
-     * collide or silently reorder which one wins. */
+
+    /* Each label is flush against its OWN boundary line, growing INWARD
+     * into the green band it describes — the lower edge's text starts
+     * at the boundary and grows right, the upper edge's text ends at
+     * the boundary and grows left — so the two only compete for space
+     * when the green band itself is narrow, rather than always
+     * colliding around a shared centre point the way two independently
+     * centred labels would. */
     if (positioned.length === 2) {
       const [a, b] = positioned;
-      const gapNeeded = measureLabel(a.text, 11) / 2 + measureLabel(b.text, 11) / 2 + 8;
-      if (b.x - a.x < gapNeeded) {
+      const aWidth = Math.max(measureLabel(a.ka, 11), measureLabel(a.pct, 11));
+      const bWidth = Math.max(measureLabel(b.ka, 11), measureLabel(b.pct, 11));
+      if (b.x - a.x < aWidth + bWidth - 24) {
+        /* Too narrow for both to grow inward without overlapping —
+         * merge into one two-line block centred between them. */
         const cx = (a.x + b.x) / 2;
-        const combined = `${a.text} · ${b.text}`;
-        out.push(`<text data-role="zone-percent" x="${cx}" y="${y}" font-size="11" font-weight="700" text-anchor="middle" fill="${colorFor(a.line)}">${escapeText(combined)}</text>`);
+        out.push(`<text data-role="zone-percent" x="${cx}" y="${yKa}" font-size="11" font-weight="700" text-anchor="middle" fill="${colorFor(a.line)}">${escapeText(`${a.ka} · ${b.ka}`)}</text>`);
+        out.push(`<text data-role="zone-percent" x="${cx}" y="${yPct}" font-size="11" font-weight="700" text-anchor="middle" fill="${colorFor(a.line)}">${escapeText(`${a.pct} · ${b.pct}`)}</text>`);
         return out;
       }
     }
     for (const p of positioned) {
-      out.push(`<text data-role="zone-percent" data-edge="${p.line.edge}" x="${p.x}" y="${y}" font-size="11" font-weight="700" text-anchor="middle" fill="${colorFor(p.line)}">${escapeText(p.text)}</text>`);
+      const anchor = p.line.edge === 'lower' ? 'start' : 'end';
+      const color = colorFor(p.line);
+      out.push(`<text data-role="zone-percent" data-edge="${p.line.edge}" x="${p.x}" y="${yKa}" font-size="11" font-weight="700" text-anchor="${anchor}" fill="${color}">${escapeText(p.ka)}</text>`);
+      out.push(`<text data-role="zone-percent" data-edge="${p.line.edge}" x="${p.x}" y="${yPct}" font-size="11" font-weight="700" text-anchor="${anchor}" fill="${color}">${escapeText(p.pct)}</text>`);
     }
     return out;
   }
 
-  /* Vertical: each label is anchored at ITS OWN boundary's true y —
-   * `upper` (bigger kA, by axis construction always the smaller/higher
-   * y) tries just inside the band below its marker first, `lower` tries
-   * just inside above its marker — so a label always sits near the
-   * value it's actually describing, never near a shared "top/bottom of
-   * band" position that could belong to the OTHER edge on a tall band.
-   * If the inside spot would land on the selected line/label, each
-   * label independently falls back to just OUTSIDE the band on its own
-   * side instead — still adjacent to the band, still tied to its own
-   * position, and naturally clear of a selection that sits inside the
-   * band. Only when a label's own position leaves no valid spot at all
-   * (a very short band with the selection right on top of it) is that
-   * one label dropped; if both end up within a row of each other, they
-   * merge into one line rather than overlap. */
-  const bandX = verticalAxisX(padL) + 12;
-  const bandW = verticalMarkerX(padL) - bandX - 24;
-  const cx = bandX + bandW / 2;
+  /* Vertical: hug the axis itself — text starts just to the right of
+   * the axis line (spec: "on the axis"), growing into the colour band
+   * toward the marker column, with a short pale leader back to the
+   * boundary's true position on the axis whenever the label had to move
+   * to stay clear of the selected line/label. */
+  const zoneX = verticalAxisX(padL) + 6;
   const positioned = lines
     .map((line) => {
       const boundary_A = boundaryFor(line);
       if (boundary_A === undefined || !Number.isFinite(boundary_A)) return null;
-      return { line, boundary_A, y: verticalY(model, axis, boundary_A / 1000, padT, plotH), text: textFor(line, boundary_A) };
+      return { line, boundary_A, y: verticalY(model, axis, boundary_A / 1000, padT, plotH), ka: kaText(boundary_A), pct: pctText(line) };
     })
-    .filter((v): v is { line: NonNullable<Resolved['selectedPercents']>[number]; boundary_A: number; y: number; text: string } => v !== null);
+    .filter((v): v is { line: NonNullable<Resolved['selectedPercents']>[number]; boundary_A: number; y: number; ka: string; pct: string } => v !== null);
   if (positioned.length === 0) return out;
   const selY = Number.isFinite(model.selection.value_A)
     ? verticalYClamped(model, axis, model.selection.value_A / 1000, padT, plotH)
@@ -659,14 +819,22 @@ function zonePercentAnnotations(
     .filter((v): v is NonNullable<typeof v> => v !== null)
     .sort((a, b) => a.y - b.y);
 
-  if (placed.length === 2 && Math.abs(placed[1].y - placed[0].y) < 13) {
+  const emitLeader = (naturalY: number, labelY: number) => {
+    if (Math.abs(labelY - naturalY) < 3) return '';
+    const axisX = verticalAxisX(padL);
+    return `<line data-role="leader" x1="${axisX}" y1="${naturalY}" x2="${zoneX - 4}" y2="${labelY}" stroke="#cdd2d8" stroke-width="0.6"/><circle data-role="leader-end" cx="${axisX}" cy="${naturalY}" r="1.5" fill="#cdd2d8"/>`;
+  };
+
+  if (placed.length === 2 && Math.abs(placed[1].y - placed[0].y) < 15) {
     const cyMerged = (placed[0].y + placed[1].y) / 2;
-    const combined = `${placed[0].text} · ${placed[1].text}`;
-    out.push(`<text data-role="zone-percent" x="${cx}" y="${cyMerged}" font-size="11" font-weight="700" text-anchor="middle" fill="${colorFor(placed[0].line)}">${escapeText(combined)}</text>`);
+    out.push(emitLeader(placed[0].y, cyMerged));
+    out.push(emitLeader(placed[1].y, cyMerged));
+    out.push(`<text data-role="zone-percent" x="${zoneX}" y="${cyMerged}" font-size="11" font-weight="700" text-anchor="start" fill="${colorFor(placed[0].line)}">${escapeText(`${placed[0].ka} ${placed[0].pct} · ${placed[1].ka} ${placed[1].pct}`)}</text>`);
     return out;
   }
   for (const p of placed) {
-    out.push(`<text data-role="zone-percent" data-edge="${p.line.edge}" x="${cx}" y="${p.y}" font-size="11" font-weight="700" text-anchor="middle" fill="${colorFor(p.line)}">${escapeText(p.text)}</text>`);
+    out.push(emitLeader(p.y, p.y));
+    out.push(`<text data-role="zone-percent" data-edge="${p.line.edge}" x="${zoneX}" y="${p.y}" font-size="11" font-weight="700" text-anchor="start" fill="${colorFor(p.line)}">${escapeText(`${p.ka} ${p.pct}`)}</text>`);
   }
   return out;
 }
@@ -724,6 +892,17 @@ function frame(
   rightGutter: number,
 ): string {
   const out: string[] = [];
+  const visible = ticks.filter((t) => t >= axis.minimum && t <= axis.maximum);
+  /* Spec §Axis: the unit (kA / A) is shown once, on the outermost tick,
+   * rather than repeated on every tick — a bare number reads faster
+   * once the reader knows the axis's unit, and repeating it on every
+   * tick is the more cluttered convention. Only safe when every tick
+   * actually shares ONE unit — an indicative or wide-range axis can mix
+   * sub-1kA and multi-kA values, where a bare number would be genuinely
+   * ambiguous (is "200" 200 A or 200 kA?); those keep a unit on every
+   * tick, same as before. */
+  const uniformUnit = !mixesUnits(visible);
+  const unitTickIndex = visible.length - 1;
   if (o === 'horizontal') {
     /* plot inner edges — vertical pale lines at the gutter positions */
     const xL = padL + leftGutter;
@@ -734,23 +913,26 @@ function frame(
     out.push(`<line x1="${xL}" y1="${padT + plotH + 0.5}" x2="${xR}" y2="${padT + plotH + 0.5}" stroke="${theme.axis}" stroke-width="1"/>`);
     /* tick labels — placed in the inner axis range (between gutters) */
     const xRange = xR - xL;
-    for (const t of ticks) {
-      if (t < axis.minimum || t > axis.maximum) continue;
+    visible.forEach((t, idx) => {
       const x = xL + scalePos(model, axis, t, xRange);
       out.push(`<line x1="${x}" y1="${padT + plotH - 4}" x2="${x}" y2="${padT + plotH + 4}" stroke="${theme.axis}" stroke-width="1"/>`);
-      out.push(`<text x="${x}" y="${padT + plotH + 22}" font-size="${fs - 1}" text-anchor="middle" fill="${theme.foreground}">${formatTick(t)}</text>`);
-    }
+      const label = !uniformUnit || idx === unitTickIndex ? formatTick(t) : formatTickBare(t);
+      out.push(`<text x="${x}" y="${padT + plotH + 22}" font-size="${fs - 1}" text-anchor="middle" fill="${theme.foreground}">${label}</text>`);
+    });
   } else {
     /* Calibrated axis on the left, ticks and labels to its left, matching
      * the spec's vertical reference figure. */
     const axisX = verticalAxisX(padL);
     out.push(`<line x1="${axisX}" y1="${padT}" x2="${axisX}" y2="${padT + plotH}" stroke="${theme.axis}" stroke-width="1"/>`);
-    for (const t of ticks) {
-      if (t < axis.minimum || t > axis.maximum) continue;
+    /* The topmost tick (largest value) carries the unit — matches the
+     * horizontal axis's own "unit on the outermost tick" convention. */
+    const topMostIndex = visible.length - 1;
+    visible.forEach((t, idx) => {
       const y = verticalY(model, axis, t, padT, plotH);
       out.push(`<line x1="${axisX - 4}" y1="${y}" x2="${axisX + 4}" y2="${y}" stroke="${theme.axis}" stroke-width="1"/>`);
-      out.push(`<text x="${axisX - 10}" y="${y + 4}" font-size="${fs - 1}" text-anchor="end" fill="${theme.foreground}">${formatTick(t)}</text>`);
-    }
+      const label = !uniformUnit || idx === topMostIndex ? formatTick(t) : formatTickBare(t);
+      out.push(`<text x="${axisX - 10}" y="${y + 4}" font-size="${fs - 1}" text-anchor="end" fill="${theme.foreground}">${label}</text>`);
+    });
   }
   void padR;
   return out.join('\n');
@@ -763,7 +945,10 @@ function frame(
  * generated as "nice" round numbers in the secondary quantity's own
  * units, then each one is converted back to its shared amp position —
  * they don't line up with the primary axis's own ticks, by design,
- * since a nice kA number rarely converts to a nice MVA number.
+ * since a nice kA number rarely converts to a nice MVA number. Styled
+ * to match the primary axis (solid line, same tick length) rather than
+ * a visually distinct dashed line, per spec §Axis: "a secondary axis
+ * MUST read as an axis, not as a decoration."
  */
 function secondaryAxisFrame(
   model: Resolved,
@@ -796,7 +981,11 @@ function secondaryAxisFrame(
 
   const secA = toSecondaryUnit(axis.minimum);
   const secB = toSecondaryUnit(axis.maximum);
-  const secTicks = buildTicks(Math.min(secA, secB), Math.max(secA, secB), axis.scale === 'indicative' ? 'linear' : axis.scale);
+  const secTicks = buildTicks(Math.min(secA, secB), Math.max(secA, secB), axis.scale === 'indicative' ? 'linear' : axis.scale)
+    .filter((t) => {
+      const posKA = toAxisKA(t);
+      return posKA >= axis.minimum && posKA <= axis.maximum;
+    });
 
   const isTop = secondaryAxis.position === 'top';
   /* `top`: adjacent to the plot (or to the zone-percent row, if that's
@@ -812,15 +1001,19 @@ function secondaryAxisFrame(
   const labelY = isTop ? zoneBoundary - 28 : bandStart + 58;
   const tickDir = isTop ? -1 : 1;
 
-  out.push(`<line data-role="secondary-axis" x1="${xL}" y1="${lineY}" x2="${xR}" y2="${lineY}" stroke="${theme.axis}" stroke-width="1" stroke-dasharray="2,2"/>`);
-  for (const t of secTicks) {
+  out.push(`<line data-role="secondary-axis" x1="${xL}" y1="${lineY}" x2="${xR}" y2="${lineY}" stroke="${theme.axis}" stroke-width="1"/>`);
+  const unitTickIndex = secTicks.length - 1;
+  const uniformSecUnit = secondaryAxis.quantity !== 'kA' || !mixesUnits(secTicks);
+  secTicks.forEach((t, idx) => {
     const posKA = toAxisKA(t);
-    if (posKA < axis.minimum || posKA > axis.maximum) continue;
     const x = xL + scalePos(model, axis, posKA, xRange);
     out.push(`<line x1="${x}" y1="${lineY}" x2="${x}" y2="${lineY + tickDir * 4}" stroke="${theme.axis}" stroke-width="1"/>`);
-    const label = secondaryAxis.quantity === 'kA' ? formatTick(t) : `${formatPlain(t, 1)} MVA`;
-    out.push(`<text x="${x}" y="${labelY}" font-size="${fs - 2}" text-anchor="middle" fill="${theme.foreground}">${escapeText(label)}</text>`);
-  }
+    const showUnit = !uniformSecUnit || idx === unitTickIndex;
+    const label = secondaryAxis.quantity === 'kA'
+      ? (showUnit ? formatTick(t) : formatTickBare(t))
+      : (showUnit ? `${formatPlain(t, 1)} MVA` : formatPlain(t, 1));
+    out.push(`<text x="${x}" y="${labelY}" font-size="${fs - 1}" text-anchor="middle" fill="${theme.foreground}">${escapeText(label)}</text>`);
+  });
   return out.join('\n');
 }
 
@@ -864,6 +1057,31 @@ function formatTick(v: number): string {
   return formatPlain(v) + ' kA';
 }
 
+/** Same magnitude convention as formatTick, without the unit suffix —
+ * used for every tick except the one that carries the axis's unit. */
+function formatTickBare(v: number): string {
+  if (v <= 0) return '0';
+  if (v >= 1000) return formatPlain(v / 1000);
+  if (v < 1) return formatPlain(v * 1000);
+  return formatPlain(v);
+}
+
+/** Whether formatTick would pick a DIFFERENT unit for different ticks in
+ * this set (some under 1 kA, shown in A; others 1 kA or over, shown in
+ * kA) — an indicative or very-wide-range axis can legitimately span
+ * both. Showing the unit only once is only safe when it's the same unit
+ * throughout; otherwise a bare number is genuinely ambiguous. */
+function mixesUnits(values: number[]): boolean {
+  let sawSub1 = false;
+  let sawAtOrAbove1 = false;
+  for (const v of values) {
+    if (v <= 0) continue;
+    if (v < 1) sawSub1 = true;
+    else sawAtOrAbove1 = true;
+  }
+  return sawSub1 && sawAtOrAbove1;
+}
+
 interface RowPos {
   cx: number;
   cy: number;
@@ -897,8 +1115,8 @@ function drawConstraint(
    * null for the (overwhelmingly common) single-criterion case. */
   groupNames: string[] | null,
   /** Vertical only: horizontal shift assigned by
-   * assignVerticalMarkerColumns when this marker's dot would otherwise
-   * collide with a neighbour's. 0 for everything else. */
+   * assignVerticalBarColumns when this marker's bar would otherwise
+   * overlap a neighbour's. 0 for everything else. */
   markerXOffset: number,
 ): string {
   void plotW;
@@ -952,15 +1170,18 @@ function drawConstraint(
       out.push(criterionDot(markerX, yC));
     }
 
-    if (yM !== null && marginSide === null) {
+    if (yM !== null && marginSide === null && model.choices.arrows !== 'off') {
       /* Arrow points toward acceptable values: for `below`, acceptable
        * values are higher, i.e. UP the vertical axis (smaller y); for
        * `above`, acceptable values are lower, i.e. DOWN (larger y).
        * Skipped when the margin itself is off-range — its exact
-       * boundary position isn't on the visible axis to point from. */
+       * boundary position isn't on the visible axis to point from —
+       * or when `style arrows off` opts out of them entirely. Sits
+       * close against the open dot rather than floating well clear of
+       * it, so it still reads as "this dot's direction". */
       const arrowDir = c.direction === 'below' ? -1 : 1;
-      const arrowStart = yM + arrowDir * 14;
-      const arrowEnd = yM + arrowDir * 24;
+      const arrowStart = yM + arrowDir * 9;
+      const arrowEnd = yM + arrowDir * 17;
       out.push(`<g data-role="arrow" transform="translate(${markerX}, ${arrowStart})">
         <line x1="0" y1="0" x2="0" y2="${arrowEnd - arrowStart}" stroke="${family}" stroke-width="1.5" opacity="0.85"/>
         <polyline points="-3,${arrowEnd - arrowStart + arrowDir * -4} 0,${arrowEnd - arrowStart} 3,${arrowEnd - arrowStart + arrowDir * -4}" fill="none" stroke="${family}" stroke-width="1.5"/>
@@ -968,11 +1189,13 @@ function drawConstraint(
     }
 
     /* Label column to the right, with a pale leader from the criterion
-     * dot. The value (and margin, if any) is inlined into the label
-     * text — matching the spec's vertical reference figure — rather
-     * than floated separately, which is what caused clutter/overlap.
-     * When the declutter pass has moved the label off the marker's true
-     * y (vLabelY), the leader angles to follow — spec §Layout: "move it
+     * dot, aligned left-to-right with the bubble it describes: bubble,
+     * then leader, then label text, in reading order. The value (and
+     * margin, if any) is inlined into the label text — matching the
+     * spec's vertical reference figure — rather than floated
+     * separately, which is what caused clutter/overlap. When the
+     * declutter pass has moved the label off the marker's true y
+     * (vLabelY), the leader angles to follow — spec §Layout: "move it
      * vertically within its row and extend a short pale leader." */
     const labelX = verticalLabelX(padL);
     const labelY = vLabelY ?? yC;
@@ -1021,7 +1244,7 @@ function drawConstraint(
   /* value text above the criterion — spec §Range: showing the exact
    * value and unit here is what makes an off-range marker "explicit"
    * rather than a bare clipped glyph. */
-  out.push(`<text data-role="criterion-value" x="${xC}" y="${y - 8}" font-size="${fs - 1}" text-anchor="middle" font-weight="600" fill="${family}">${escapeText(formatCondition(c.value_A) + countSuffix + voltageOverrideSuffix(c.entered))}</text>`);
+  out.push(`<text data-role="criterion-value" x="${xC}" y="${y + row.valueAbove}" font-size="${fs - 1}" text-anchor="middle" font-weight="600" fill="${family}">${escapeText(formatCondition(c.value_A) + countSuffix + voltageOverrideSuffix(c.entered))}</text>`);
 
   /* margin value text BELOW the open dot, and the direction arrow
    * OUTSIDE the open dot in the acceptable direction. The arrow points
@@ -1030,17 +1253,19 @@ function drawConstraint(
    * from — but the value text is kept for the same reason as above. */
   if (xM !== null) {
     if (marginText) {
-      out.push(`<text data-role="margin-value" x="${xM}" y="${y + 22}" font-size="${fs - 1}" text-anchor="middle" fill="${theme.callout}">${escapeText(marginText)}</text>`);
+      out.push(`<text data-role="margin-value" x="${xM}" y="${y + row.valueBelow}" font-size="${fs - 1}" text-anchor="middle" fill="${theme.callout}">${escapeText(marginText)}</text>`);
     }
-    if (marginSide === null) {
+    if (marginSide === null && model.choices.arrows !== 'off') {
       /* short direction arrow outside the open dot pointing to acceptable
        * values. For `below` constraints the selected must be > criterion,
        * so the arrow at the open margin boundary points RIGHT (toward
        * higher values, which are the acceptable side). For `above` the
-       * arrow points LEFT. */
+       * arrow points LEFT. Sits close against the dot — `style arrows
+       * off` removes it entirely for a reader who finds it redundant
+       * with the margin value/leader already shown. */
       const arrowDir = c.direction === 'below' ? 1 : -1;
-      const arrowStart = xM + arrowDir * 14;
-      const arrowEnd = xM + arrowDir * 24;
+      const arrowStart = xM + arrowDir * 9;
+      const arrowEnd = xM + arrowDir * 17;
       out.push(`<g data-role="arrow" transform="translate(${arrowStart}, ${y})">
         <line x1="0" y1="0" x2="${arrowEnd - arrowStart}" y2="0" stroke="${family}" stroke-width="1.5" opacity="0.85"/>
         <polyline points="${arrowEnd - arrowStart + arrowDir * -4},-3 ${arrowEnd - arrowStart},0 ${arrowEnd - arrowStart + arrowDir * -4},3" fill="none" stroke="${family}" stroke-width="1.5"/>
@@ -1078,6 +1303,39 @@ function voltageOverrideSuffix(entered: { unit: string; voltageOverride?: { valu
   return ` (@ ${formatPlain(entered.voltageOverride.value)} kV)`;
 }
 
+/**
+ * The selected-value label parts (spec §Displayed quantities). `prefix`
+ * is the word/name shown above the plot (task: kept separate from the
+ * number so the number can live at the axis instead). `primary` is the
+ * main value line (entered quantity, if shown, then the setting value).
+ * `above`/`below` carry the MVA and secondary-amp equivalents when
+ * requested — split across the two so a diagram with both isn't a
+ * single long run-on line.
+ */
+interface SelectedLabelParts {
+  prefix: string;
+  primary: string;
+  above?: string;
+  below?: string;
+}
+
+function selectedLabelParts(model: Resolved): SelectedLabelParts {
+  const d = model.display;
+  const t = model.displayToggle;
+  const primaryParts: string[] = [];
+  if (t.showEntered && d?.entered) primaryParts.push(d.entered.text);
+  const voltageSuffix = t.showEntered && d?.entered ? '' : voltageOverrideSuffix(model.selection.entered);
+  primaryParts.push(formatSetting(model.selection.value_A) + voltageSuffix);
+  /* `word selected "…"` configures the generic word; the `selected
+   * "name"` statement's own label, when given, NAMES the value itself
+   * and takes precedence — spec §Selection: "the label, if present,
+   * identifies what is being set, and replaces the generic prefix." */
+  const prefix = model.selection.label || model.choices.words.selected || 'Selected';
+  const above = t.showMva && d?.mva ? d.mva.text : undefined;
+  const below = t.showSecondary && d?.secondary ? `${d.secondary.text} sec` : undefined;
+  return { prefix, primary: primaryParts.join(' · '), above, below };
+}
+
 function drawSelection(
   model: Resolved,
   axis: Resolved['axis'],
@@ -1095,8 +1353,13 @@ function drawSelection(
    * label sits this far above its original padT-12 offset so it stays
    * the TOPMOST element in that stack, per spec's ordering. */
   topStackHeight = 0,
+  /** Horizontal only: height of the axis line/ticks/number row directly
+   * below the plot — the selected value's own row stacks just under
+   * that. */
+  bottomAxisRow = 0,
 ): string {
   const out: string[] = [];
+  const parts = selectedLabelParts(model);
   /* `range focus` bounds the axis around the controlling boundaries;
    * the selection is normally within them (spec: focus "focuses on
    * ... the selected value"), but a do-not-set selection can still
@@ -1109,43 +1372,46 @@ function drawSelection(
     const xRange = xR - xL;
     const x = selSide === 'low' ? xL : selSide === 'high' ? xR : xL + scalePos(model, axis, model.selection.value_A / 1000, xRange);
     out.push(`<line data-role="selected-line" x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}" stroke="${palette.selected}" stroke-width="2"/>`);
-    out.push(`<text data-role="selected-label" x="${x}" y="${padT - 12 - topStackHeight}" font-size="${fs + 1}" font-weight="700" fill="${palette.selected}" text-anchor="middle">${escapeText(selectedLabelText(model))}</text>`);
-    out.push(`<circle data-role="selected-marker-dot" cx="${x}" cy="${padT + plotH / 2}" r="6" fill="${palette.selected}"/>`);
+    /* Word label stays above the plot — spec §Selected-setting label:
+     * the NUMBER moves to the axis, the word doesn't. */
+    out.push(`<text data-role="selected-label" x="${x}" y="${padT - 12 - topStackHeight}" font-size="${fs + 1}" font-weight="700" fill="${palette.selected}" text-anchor="middle">${escapeText(parts.prefix)}</text>`);
+    /* On the axis itself, not mid-plot — mid-plot put it in the same
+     * lane as whichever criterion row happened to land there, colliding
+     * with that row's dot/value text. The axis is a lane nothing else
+     * occupies, so anchoring here guarantees no collision regardless of
+     * how many criterion rows there are. */
+    out.push(`<circle data-role="selected-marker-dot" cx="${x}" cy="${padT + plotH}" r="6" fill="${palette.selected}"/>`);
+    /* Numeric value(s) on their own row just below the axis's own
+     * tick-label row — spec: "written on the axis or below it, not
+     * repeated above the plot." */
+    const valueParts = [parts.primary, parts.above, parts.below].filter((v): v is string => !!v);
+    const valueY = padT + plotH + bottomAxisRow + 14;
+    out.push(`<text data-role="selected-value" x="${x}" y="${valueY}" font-size="${fs - 1}" font-weight="700" fill="${palette.selected}" text-anchor="middle">${escapeText(valueParts.join(' · '))}</text>`);
   } else {
     const y = verticalYClamped(model, axis, model.selection.value_A / 1000, padT, plotH);
-    const labelX = verticalLabelX(padL);
-    out.push(`<line data-role="selected-line" x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="${palette.selected}" stroke-width="2"/>`);
-    out.push(`<text data-role="selected-label" x="${labelX}" y="${y - 8}" font-size="${fs + 1}" font-weight="700" fill="${palette.selected}" text-anchor="start">${escapeText(selectedLabelText(model))}</text>`);
+    /* The line now runs from the axis to just past the marker column —
+     * short enough to stop before the tick-number column on the axis's
+     * OTHER side (spec: "MUST NOT cross the vertical scale numbers")
+     * and before the far label column, rather than spanning the whole
+     * plot width. */
+    const axisX = verticalAxisX(padL);
+    const lineEndX = verticalMarkerX(padL) + 40;
+    out.push(`<line data-role="selected-line" x1="${axisX}" y1="${y}" x2="${lineEndX}" y2="${y}" stroke="${palette.selected}" stroke-width="2"/>`);
     out.push(`<circle data-role="selected-marker-dot" cx="${verticalMarkerX(padL)}" cy="${y}" r="6" fill="${palette.selected}"/>`);
+    /* Label sits on the RIGHT of the (now short) line, not in the far
+     * label column — primary value on the line itself, MVA above it and
+     * secondary amps below it when both are requested, so neither
+     * stacks into a single long run-on line. */
+    const labelX = lineEndX + 10;
+    out.push(`<text data-role="selected-label" x="${labelX}" y="${y + 4}" font-size="${fs + 1}" font-weight="700" fill="${palette.selected}" text-anchor="start">${escapeText(`${parts.prefix} ${parts.primary}`)}</text>`);
+    if (parts.above) {
+      out.push(`<text data-role="selected-value-above" x="${labelX}" y="${y - 10}" font-size="${fs - 1}" font-weight="600" fill="${palette.selected}" text-anchor="start">${escapeText(parts.above)}</text>`);
+    }
+    if (parts.below) {
+      out.push(`<text data-role="selected-value-below" x="${labelX}" y="${y + 22}" font-size="${fs - 1}" font-weight="600" fill="${palette.selected}" text-anchor="start">${escapeText(parts.below)}</text>`);
+    }
   }
   return out.join('\n');
-}
-
-/**
- * The selected-value label, including any equivalent quantities the
- * diagram asked for (spec §Displayed quantities). Without this the
- * `show current, mva, secondary` statement had no visible effect at
- * all: the conversions were resolved into the model and then never
- * drawn. The entered quantity leads when `show entered` puts it first,
- * since that is the number the engineer actually typed.
- */
-function selectedLabelText(model: Resolved): string {
-  const d = model.display;
-  const t = model.displayToggle;
-  const parts: string[] = [];
-  if (t.showEntered && d?.entered) parts.push(d.entered.text);
-  /* The entered-quantity display (above) already spells out its own `@
-   * X kV` when present, so only add the suffix here when that line
-   * isn't shown — otherwise the same override would appear twice. */
-  const voltageSuffix = t.showEntered && d?.entered ? '' : voltageOverrideSuffix(model.selection.entered);
-  parts.push(formatSetting(model.selection.value_A) + voltageSuffix);
-  if (t.showMva && d?.mva) parts.push(d.mva.text);
-  if (t.showSecondary && d?.secondary) parts.push(`${d.secondary.text} sec`);
-  /* `word selected "…"` was accepted by the grammar and validated, but
-   * nothing ever read it back — the prefix was always the hardcoded
-   * literal "SELECTED". */
-  const prefix = model.choices.words.selected ?? 'Selected';
-  return `${prefix} ${parts.join(' · ')}`;
 }
 
 /**
@@ -1228,12 +1494,13 @@ function statusText(model: Resolved, palette: { selected: string; caution: strin
 /** Horizontal (and no-selection fallback) status callout. `anchorX`
  * defaults to the plot centre but is normally the selected line's own
  * x — spec's reference figures place the status directly beneath the
- * selected setpoint, not centred on the whole canvas. */
-function statusCallout(model: Resolved, anchorX: number, height: number, fs: number, theme: { callout: string; foreground: string }, palette: { selected: string; caution: string; conflict: string }): string {
+ * selected setpoint, not centred on the whole canvas. `titleAtBottom`
+ * shifts the callout up so it stays clear of the bottom title row. */
+function statusCallout(model: Resolved, anchorX: number, height: number, fs: number, theme: { callout: string; foreground: string }, palette: { selected: string; caution: string; conflict: string }, titleAtBottom = false): string {
   const out: string[] = [];
   const { state, stateColor, detail } = statusText(model, palette);
 
-  const cy = height - 36;
+  const cy = height - 36 - (titleAtBottom ? BOTTOM_TITLE_ROW : 0);
 
   if (state === null) {
     /* no-recommended-setting / no-selection: no verdict word, just the
@@ -1265,26 +1532,28 @@ function statusCallout(model: Resolved, anchorX: number, height: number, fs: num
   return out.join('\n');
 }
 
-/** Vertical status text — placed directly beneath the selected line in
- * the label column, matching the spec's vertical reference figure
- * (SELECTED above the line, state/detail below it, both in the same
- * column as criterion labels). */
+/** Vertical status text — placed beneath the (now shortened) selected
+ * line, in the same right-of-line column as the selected label, always
+ * leaving room for a 3-line selected-value stack (primary + optional
+ * above/below) so it doesn't need to know exactly which of those lines
+ * are present. */
 function verticalStatusText(model: Resolved, y: number, padL: number, fs: number, theme: { callout: string }, palette: { selected: string; caution: string; conflict: string }): string {
   const { state, stateColor, detail } = statusText(model, palette);
-  const x = verticalLabelX(padL);
+  const x = verticalMarkerX(padL) + 50;
+  const baseY = y + 40;
   const out: string[] = [];
   if (state === null) {
     /* no-recommended-setting / no-selection: no verdict word, just the
      * range values as plain neutral text. `recommended` also lands
      * here with an empty detail — skip the element entirely. */
     if (detail) {
-      out.push(`<text x="${x}" y="${y + 20}" font-size="${fs - 1}" fill="${theme.callout}" text-anchor="start">${escapeText(detail)}</text>`);
+      out.push(`<text x="${x}" y="${baseY}" font-size="${fs - 1}" fill="${theme.callout}" text-anchor="start">${escapeText(detail)}</text>`);
     }
     return out.join('\n');
   }
-  out.push(`<text x="${x}" y="${y + 20}" font-size="${fs}" font-weight="700" fill="${stateColor}" text-anchor="start">${escapeText(state)}</text>`);
+  out.push(`<text x="${x}" y="${baseY}" font-size="${fs}" font-weight="700" fill="${stateColor}" text-anchor="start">${escapeText(state)}</text>`);
   if (detail) {
-    out.push(`<text x="${x}" y="${y + 20 + fs + 3}" font-size="${fs - 1}" fill="${theme.callout}" text-anchor="start">${escapeText(detail)}</text>`);
+    out.push(`<text x="${x}" y="${baseY + fs + 3}" font-size="${fs - 1}" fill="${theme.callout}" text-anchor="start">${escapeText(detail)}</text>`);
   }
   return out.join('\n');
 }
@@ -1404,8 +1673,8 @@ function verticalMarkerX(padL: number): number {
   return verticalAxisX(padL) + 90;
 }
 
-/** x of the criterion-label / SELECTED / status column, right of the
- * marker column and its leader line. */
+/** x of the criterion-label column, right of the marker column and its
+ * leader line. */
 function verticalLabelX(padL: number): number {
   return verticalMarkerX(padL) + 90;
 }

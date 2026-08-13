@@ -115,7 +115,29 @@ export class PsdlApp extends LitElement {
       /* same as above — restoring saved work is best-effort only. */
     }
     this.parseAndRender();
+    document.addEventListener('keydown', this.onGlobalKeydown);
   }
+
+  override disconnectedCallback(): void {
+    document.removeEventListener('keydown', this.onGlobalKeydown);
+    super.disconnectedCallback();
+  }
+
+  /** `?` opens the guide from anywhere in the app — except while the
+   * user is actually typing (in the source editor, the guide's own
+   * search box, or any other text input), where `?` is an ordinary
+   * character. Bound once as an instance property (not a method
+   * reference re-created each render) so add/removeEventListener see
+   * the same function identity. */
+  private onGlobalKeydown = (e: KeyboardEvent): void => {
+    if (e.key !== '?' || e.metaKey || e.ctrlKey || e.altKey) return;
+    const target = e.target as HTMLElement | null;
+    const tag = target?.tagName;
+    const isEditable = tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable || !!target?.closest?.('.cm-editor');
+    if (isEditable) return;
+    e.preventDefault();
+    this.guideOpen = true;
+  };
 
   private onSourceChange(e: CustomEvent<string>): void {
     this.source = e.detail;
@@ -249,7 +271,7 @@ export class PsdlApp extends LitElement {
           <button class="psdl-btn" @click=${() => this.toggleTheme()}>${this.lightTheme ? 'Dark' : 'Light'}</button>
           <button class="psdl-btn" @click=${() => this.downloadSvg()}>Download SVG</button>
           <button class="psdl-btn" @click=${() => this.downloadPng()}>Download PNG</button>
-          <button class="psdl-btn" @click=${() => { this.guideOpen = true; }}>Guide</button>
+          <button class="psdl-btn" title="Open the guide (or press ?)" @click=${() => { this.guideOpen = true; }}>Guide <span class="psdl-kbd">?</span></button>
           <button class="psdl-btn" @click=${() => { this.source = STARTER_PSDL; this.activeExampleId = 'feeder-setting'; this.parseAndRender(); }}>Reset</button>
         </div>
       </div>
