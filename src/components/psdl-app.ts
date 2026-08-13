@@ -32,6 +32,7 @@ import NOMINAL_MVA_SRC from '../../examples/19-nominal-mva.psdl?raw';
 import SECONDARY_AXIS_SRC from '../../examples/20-secondary-axis.psdl?raw';
 
 const STARTER_PSDL = FEEDER_SRC;
+const SAVE_KEY = 'psdl.savedSource';
 
 const EXAMPLES: { id: string; label: string; src: string }[] = [
   { id: 'feeder-setting', label: 'Feeder setting (spec)', src: FEEDER_SRC },
@@ -84,6 +85,8 @@ export class PsdlApp extends LitElement {
   @state() private display: { label: string; text: string }[] = [];
   @state() private marks: Mark[] = [];
   @state() private guideOpen = false;
+  @state() private savedFlash = false;
+  private savedFlashTimer: ReturnType<typeof setTimeout> | null = null;
   /* Tracks the theme as Lit state, not read from the DOM at render time:
    * document.documentElement.dataset.theme is invisible to Lit's
    * reactivity, so the toggle button's own label went stale after every
@@ -98,6 +101,18 @@ export class PsdlApp extends LitElement {
     } catch {
       /* localStorage can throw (privacy mode, disabled storage) — the
        * split position is a nice-to-have, not worth failing over. */
+    }
+    try {
+      const savedSource = localStorage.getItem(SAVE_KEY);
+      if (savedSource) {
+        this.source = savedSource;
+        /* Not one of EXAMPLES' ids, so the picker shows no selection —
+         * correct, since this is the user's own saved work, not an
+         * example they picked. */
+        this.activeExampleId = '';
+      }
+    } catch {
+      /* same as above — restoring saved work is best-effort only. */
     }
     this.parseAndRender();
   }
@@ -156,6 +171,31 @@ export class PsdlApp extends LitElement {
     if (next === 'dark') root.removeAttribute('data-theme');
     else root.dataset.theme = next;
     this.lightTheme = next === 'light';
+  }
+
+  /** Persists the current source to the browser so it survives a reload
+   * — restored in connectedCallback. Distinct from "Download": this
+   * keeps working state in THIS browser, not a portable file. */
+  private saveSource(): void {
+    try {
+      localStorage.setItem(SAVE_KEY, this.source);
+    } catch {
+      /* privacy mode / disabled storage — saving is best-effort, same
+       * as the split-position persistence above. */
+    }
+    this.savedFlash = true;
+    if (this.savedFlashTimer) clearTimeout(this.savedFlashTimer);
+    this.savedFlashTimer = setTimeout(() => { this.savedFlash = false; }, 1500);
+  }
+
+  private downloadPsdlSource(): void {
+    const blob = new Blob([this.source], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${this.diagramTitle.replace(/\s+/g, '-').toLowerCase() || 'diagram'}.psdl`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   private downloadSvg(): void {
@@ -218,6 +258,9 @@ export class PsdlApp extends LitElement {
           <div class="psdl-side-title">
             <strong>Source</strong>
             <span class="psdl-small">.psdl</span>
+            <span class="psdl-spacer"></span>
+            <button class="psdl-btn psdl-btn-sm" @click=${() => this.saveSource()}>${this.savedFlash ? 'Saved' : 'Save'}</button>
+            <button class="psdl-btn psdl-btn-sm" @click=${() => this.downloadPsdlSource()}>Download</button>
           </div>
           <psdl-editor
             .value=${this.source}

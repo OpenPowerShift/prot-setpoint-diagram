@@ -182,6 +182,12 @@ psdl-app {
 }
 
 .psdl-side-title strong { color: var(--psdl-fg); font-weight: 600; }
+.psdl-side-title .psdl-spacer { flex: 1; }
+
+.psdl-btn-sm {
+  padding: 2px 8px;
+  font-size: 11px;
+}
 
 .psdl-splitter {
   width: 4px;
