@@ -27,10 +27,16 @@ describe('spec §Normative visual encoding: kA precision', () => {
      * above the plot; the numeric value now sits in its own row on the
      * axis, spec §Selected-setting label. */
     expect(svg).toMatch(/data-role="selected-label"[^>]*>Selected setting</);
-    expect(svg).toMatch(/data-role="selected-value"[^>]*>6\.35 kA/);
+    expect(svg).toMatch(/data-role="selected-value"[^>]*>6\.3 kA/);
   });
 
-  it('leaves sub-1000 A values in whole amps with no forced decimals', () => {
+  it('shows whole amps with no decimal place, whether or not the source value was whole', () => {
+    /* A criterion entered as whole amps is unaffected by this rule. It
+     * matters most for a value that only exists in amps because it was
+     * CONVERTED from kVA/MVA and rarely lands on a whole amp — a
+     * setting is never dialled in to the nearest milliamp, so it's
+     * rounded the same as any other amp figure rather than carrying a
+     * multi-decimal conversion remainder (see the next test). */
     const src = `diagram "Amps" {
       below "Load" must 400 A
       above "Fault" must 900 A
@@ -41,6 +47,18 @@ describe('spec §Normative visual encoding: kA precision', () => {
     expect(svg).toContain('>900 A<');
     expect(svg).toMatch(/data-role="selected-label"[^>]*>Setting</);
     expect(svg).toMatch(/data-role="selected-value"[^>]*>650 A</);
+  });
+
+  it('rounds a sub-1000 A value converted from MVA to a whole amp, not three decimal places', () => {
+    const src = `diagram "T" {
+      voltage 33 kV
+      below "Load x 6 IBR" must 30 MVA margin 5%
+      selected "S" midpoint
+    }`;
+    const { svg } = parseAndRender(src);
+    expect(svg).toContain('>525 A<');
+    expect(svg).not.toContain('524.864');
+    expect(svg).not.toContain('524.9');
   });
 });
 
@@ -121,7 +139,7 @@ describe('spec §Per-quantity voltage: override shown in brackets', () => {
     const { svg } = parseAndRender(load('13-per-quantity-voltage'));
     expect(svg).toContain('2.6 kA (@ 11 kV)');
     expect(svg).toContain('5.2 kA (@ 33 kV)');
-    expect(svg).toMatch(/data-role="selected-value"[^>]*>4\.20 kA \(@ 11 kV\)/);
+    expect(svg).toMatch(/data-role="selected-value"[^>]*>4\.2 kA \(@ 11 kV\)/);
   });
 
   it('does not show a bracket for a plain kA/A quantity — the override has no effect there', () => {
@@ -298,14 +316,33 @@ describe('spec §Requirement levels: reference criteria do not enter banding', (
     expect(dot).not.toContain('fill="#1d4ed8"'); // not the "upper" family colour
   });
 
-  it('rejects a margin on a reference criterion', () => {
-    const src = `diagram "Bad reference" {
+  it('accepts a margin on a reference criterion as a display-only band, excluded from banding', () => {
+    const src = `diagram "Reference with margin" {
       below "Load" must 5 kA
       above "Note" reference 9 kA margin 10%
       selected "Setting" midpoint
     }`;
-    const { result } = parseAndRender(src);
-    expect(result.parseErrors.some((e) => e.code === 'PSDL006_MARGIN_NOT_APPLICABLE')).toBe(true);
+    const { result, svg } = parseAndRender(src);
+    expect(result.parseErrors).toHaveLength(0);
+    // 9 kA margin 10% (above) -> boundary 8.1 kA; if this leaked into the
+    // preferred/mandatory calculation it would show up in one of these.
+    expect(result.resolved!.preferredInterval.maximum).toBe(Number.POSITIVE_INFINITY);
+    expect(result.resolved!.mandatoryInterval.maximum).toBe(Number.POSITIVE_INFINITY);
+    // Renders the same criterion-bar + open-circle shape as a must/should
+    // margin, but in the neutral (not family) colour.
+    expect(svg).toContain('data-role="criterion-bar"');
+    const bar = svg.match(/<line data-role="criterion-bar"[^>]*>/)?.[0] ?? '';
+    expect(bar).toContain('stroke="#1f2937"'); // palette.mandatory, not palette.upper
+  });
+
+  it('does not draw a direction arrow on a margined reference criterion', () => {
+    const src = `diagram "Reference with margin" {
+      below "Load" must 5 kA
+      above "Note" reference 9 kA margin 10%
+      selected "Setting" midpoint
+    }`;
+    const { svg } = parseAndRender(src);
+    expect(svg).not.toContain('data-role="arrow"');
   });
 });
 

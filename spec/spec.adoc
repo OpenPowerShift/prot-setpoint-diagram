@@ -102,10 +102,11 @@ The example resolves to `10.8 kA`.
 
 `must`:: Hard engineering criterion. Crossing the original criterion produces `do-not-set` status and an error diagnostic.
 `should`:: Advisory criterion. Crossing the criterion produces `caution` status and a warning diagnostic.
-`reference`:: Informational only. Plotted like any other criterion but excluded from every mandatory/preferred interval calculation — it never affects status, banding, or the zone shading. Useful for a point the reader should see on the diagram (e.g. a CT rating, a downstream relay's own pickup) without it being a condition on the selected setting. A `reference` criterion MUST NOT carry a `margin` (`PSDL006_MARGIN_NOT_APPLICABLE`) — a margin exists to define a preferred boundary, and a `reference` point has none.
+`reference`:: Informational only. Plotted like any other criterion but excluded from every mandatory/preferred interval calculation — it never affects status, banding, or the zone shading, REGARDLESS of whether it carries a margin. Useful for a point the reader should see on the diagram (e.g. a CT rating, a downstream relay's own pickup) without it being a condition on the selected setting.
 
 A margin attached to `must` defines the preferred boundary inside the mandatory criterion. Crossing the margin but not the original `must` criterion produces `caution`.
 A margin attached to `should` defines a more conservative preferred boundary; crossing either the margin or the advisory criterion remains `caution`.
+A margin attached to `reference` is display-only: it draws the same criterion-to-boundary band as a must/should margin, in a neutral colour rather than a family colour, giving the reference point a visible range of context (e.g. its rated accuracy) — a renderer MUST still exclude it from the mandatory/preferred interval, status, and zone shading, exactly as an unmargined `reference` is. It does not carry a direction arrow (there is no "acceptable side" to point toward on a point that never expresses a requirement).
 
 === Absolute margins
 
@@ -440,6 +441,7 @@ style title on
 style title-align left
 style title-position top
 style arrows on
+style boundary-current off
 ----
 
 `theme` values: `light`, `dark`, `print`, `monochrome`.
@@ -450,8 +452,9 @@ style arrows on
 `title-align` values: `left`, `center`, `right` — horizontal position of the title text within the canvas.
 `title-position` values: `top`, `bottom` — whether the title (and its divider) renders above the plot, in its usual place, or as its own row at the very bottom of the canvas, below the status callout.
 `arrows` values: `on`, `off`. Controls the small acceptable-direction arrow drawn next to each margin-adjusted boundary. When `off`, the renderer MUST NOT draw it — the margin value and leader already convey the same boundary, and a reader who finds the arrow redundant can drop it without losing information.
+`boundary-current` values: `on`, `off`. When `on`, the text next to a margin-adjusted boundary's open circle is prefixed with the boundary's own resulting current (e.g. "7.2 kA · 10%") rather than just the margin that produced it (e.g. "10%") — useful when a reader wants the actual amp value at a glance, without computing it from the criterion and margin themselves.
 
-Defaults are `print`, `accessible`, `subtle` for report view, `pale` connections, `title on`, `title-align left`, `title-position top`, and `arrows on`.
+Defaults are `print`, `accessible`, `subtle` for report view, `pale` connections, `title on`, `title-align left`, `title-position top`, `arrows on`, and `boundary-current off`.
 An implementation MAY add namespaced style extensions. Unknown unnamespaced style properties are errors.
 
 == Normative visual encoding
@@ -472,9 +475,8 @@ A renderer MUST retain marker fill, arrow direction, line form and text labels i
 
 === Numeric precision
 
-A criterion, margin boundary, or mandatory/preferred range value ("a condition") displayed in kA MUST show exactly one decimal place.
-The selected setting displayed in kA MUST show exactly two decimal places — one more than a condition, since it is the number that actually gets dialled into a relay.
-Values below 1000 A displayed in A are shown as entered, with no forced decimal places.
+One precision rule applies everywhere a current value is displayed — a criterion, margin boundary, mandatory/preferred range value, or the selected setting itself: MUST show whole amps (no decimal place) when displayed in A, and exactly one decimal place when displayed in kA. This includes a value that is only in A or kA because it was CONVERTED from kVA/MVA and rarely lands on a round number — three or more decimal places on a converted figure (e.g. "787.296 A" or "524.864 A") is false precision, since a setting is never dialled in to the nearest milliamp; round it the same as every other current value on the diagram.
+Axis tick labels follow the same A/kA precision, capped rather than forced: a "nice" calibrated tick (an integer by construction) still reads as a clean integer, while a tick that isn't nice — every distinct value on an indicative-scale axis, which can include a raw unit conversion — is rounded down to that same precision instead of showing three or more decimal places.
 This applies to displayed values only; internal computation MUST NOT be rounded to these precisions.
 
 == Layout and collision avoidance
@@ -538,7 +540,6 @@ Each diagnostic contains a stable code, severity, message and source span.
 `PSDL003_STRING_REQUIRED`:: Missing or invalid quoted label.
 `PSDL004_EXPRESSION_INVALID`:: Malformed arithmetic expression.
 `PSDL005_UNIT_UNKNOWN`:: Unsupported unit.
-`PSDL006_MARGIN_NOT_APPLICABLE`:: A `reference` criterion carries a `margin`.
 
 === Engineering errors
 

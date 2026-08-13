@@ -114,7 +114,7 @@ export interface WordStatement {
 
 export interface StyleStatement {
   type: 'style';
-  property: 'theme' | 'palette' | 'zones' | 'connections' | 'title' | 'title-align' | 'title-position' | 'arrows';
+  property: 'theme' | 'palette' | 'zones' | 'connections' | 'title' | 'title-align' | 'title-position' | 'arrows' | 'boundary-current';
   value: string;
   loc: SourceLocation;
 }

@@ -153,6 +153,7 @@ export interface Resolved {
     titleAlign: 'left' | 'center' | 'right';
     titlePosition: 'top' | 'bottom';
     arrows: 'on' | 'off';
+    boundaryCurrent: 'on' | 'off';
     width?: number;
     height?: number;
     words: Partial<Record<import('../parser/ast.js').WordName, string>>;
@@ -208,7 +209,7 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
   const constraints: ConstraintStatement[] = [];
   let selectionStmt: SelectionStatement | undefined;
   let secondaryAxisStmt: import('../parser/ast.js').SecondaryAxisStatement | undefined;
-  const paletteChoice: { palette: 'accessible' | 'default' | 'high-contrast' | 'monochrome'; theme: 'light' | 'dark' | 'print' | 'monochrome'; zones: 'off' | 'subtle' | 'full'; connections: 'off' | 'pale' | 'rows'; title: 'on' | 'off'; titleAlign: 'left' | 'center' | 'right'; titlePosition: 'top' | 'bottom'; arrows: 'on' | 'off' } = { palette: 'accessible', theme: 'print', zones: 'subtle', connections: 'pale', title: 'on', titleAlign: 'left', titlePosition: 'top', arrows: 'on' };
+  const paletteChoice: { palette: 'accessible' | 'default' | 'high-contrast' | 'monochrome'; theme: 'light' | 'dark' | 'print' | 'monochrome'; zones: 'off' | 'subtle' | 'full'; connections: 'off' | 'pale' | 'rows'; title: 'on' | 'off'; titleAlign: 'left' | 'center' | 'right'; titlePosition: 'top' | 'bottom'; arrows: 'on' | 'off'; boundaryCurrent: 'on' | 'off' } = { palette: 'accessible', theme: 'print', zones: 'subtle', connections: 'pale', title: 'on', titleAlign: 'left', titlePosition: 'top', arrows: 'on', boundaryCurrent: 'off' };
   const wordChoices: Partial<Record<import('../parser/ast.js').WordName, string>> = {};
   let sizeWidth: number | undefined;
   let sizeHeight: number | undefined;
@@ -272,6 +273,9 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
         }
         if (stmt.property === 'arrows' && ['on', 'off'].includes(stmt.value)) {
           paletteChoice.arrows = stmt.value as typeof paletteChoice.arrows;
+        }
+        if (stmt.property === 'boundary-current' && ['on', 'off'].includes(stmt.value)) {
+          paletteChoice.boundaryCurrent = stmt.value as typeof paletteChoice.boundaryCurrent;
         }
         break;
       case 'word':
@@ -751,6 +755,7 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
         titleAlign: paletteChoice.titleAlign,
         titlePosition: paletteChoice.titlePosition,
         arrows: paletteChoice.arrows,
+        boundaryCurrent: paletteChoice.boundaryCurrent,
         width: sizeWidth,
         height: sizeHeight,
         words: wordChoices,
@@ -775,6 +780,10 @@ function computePreferred(cs: Constraint[]): AxisInterval {
   const belowCandidates: number[] = [];
   const aboveCandidates: number[] = [];
   for (const c of cs) {
+    /* `reference` is excluded from banding entirely, even when it
+     * carries a margin (spec §Requirement levels) — that margin is
+     * display-only, not a preferred-interval boundary. */
+    if (c.requirement === 'reference') continue;
     if (c.direction === 'below') {
       if (c.requirement === 'should') belowCandidates.push(c.value_A);
       if (c.boundary_A !== null) belowCandidates.push(c.boundary_A);
@@ -815,7 +824,7 @@ function controllingUpper(cs: Constraint[]): ControllingBoundary | null {
 function controllingPreferredLower(cs: Constraint[]): ControllingBoundary | null {
   let best: { label: string; value: number } | null = null;
   for (const c of cs) {
-    if (c.direction !== 'below') continue;
+    if (c.direction !== 'below' || c.requirement === 'reference') continue;
     if (c.requirement === 'should' && (best === null || c.value_A > best.value)) best = { label: c.label, value: c.value_A };
     if (c.boundary_A !== null && (best === null || c.boundary_A > best.value)) best = { label: c.label, value: c.boundary_A };
   }
@@ -825,7 +834,7 @@ function controllingPreferredLower(cs: Constraint[]): ControllingBoundary | null
 function controllingPreferredUpper(cs: Constraint[]): ControllingBoundary | null {
   let best: { label: string; value: number } | null = null;
   for (const c of cs) {
-    if (c.direction !== 'above') continue;
+    if (c.direction !== 'above' || c.requirement === 'reference') continue;
     if (c.requirement === 'should' && (best === null || c.value_A < best.value)) best = { label: c.label, value: c.value_A };
     if (c.boundary_A !== null && (best === null || c.boundary_A < best.value)) best = { label: c.label, value: c.boundary_A };
   }
@@ -1226,6 +1235,17 @@ function applyStyle(diagnostics: Diagnostic[], stmt: import('../parser/ast.js').
       code: 'PSDL001_UNKNOWN_STATEMENT',
       severity: 'error',
       message: `Unknown arrows value '${stmt.value}'.`,
+      line: stmt.loc.line,
+      column: stmt.loc.column,
+      offset: stmt.loc.offset,
+      length: 5,
+    });
+  }
+  if (stmt.property === 'boundary-current' && !['on', 'off'].includes(stmt.value)) {
+    diagnostics.push({
+      code: 'PSDL001_UNKNOWN_STATEMENT',
+      severity: 'error',
+      message: `Unknown boundary-current value '${stmt.value}'.`,
       line: stmt.loc.line,
       column: stmt.loc.column,
       offset: stmt.loc.offset,

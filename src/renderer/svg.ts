@@ -902,7 +902,6 @@ function frame(
    * ambiguous (is "200" 200 A or 200 kA?); those keep a unit on every
    * tick, same as before. */
   const uniformUnit = !mixesUnits(visible);
-  const unitTickIndex = visible.length - 1;
   if (o === 'horizontal') {
     /* plot inner edges — vertical pale lines at the gutter positions */
     const xL = padL + leftGutter;
@@ -911,31 +910,78 @@ function frame(
     out.push(`<line x1="${xR}" y1="${padT}" x2="${xR}" y2="${padT + plotH}" stroke="#e6e8eb" stroke-width="0.5"/>`);
     /* horizontal axis line at the bottom */
     out.push(`<line x1="${xL}" y1="${padT + plotH + 0.5}" x2="${xR}" y2="${padT + plotH + 0.5}" stroke="${theme.axis}" stroke-width="1"/>`);
-    /* tick labels — placed in the inner axis range (between gutters) */
+    /* tick labels — placed in the inner axis range (between gutters).
+     * `scale indicative` (and, in principle, any scale with enough
+     * ticks crowded together) can put more distinct values on the axis
+     * than there is room to LABEL — declutterTickPositions drops a
+     * label wherever it would overlap the previous one already drawn,
+     * keeping the tick mark itself so the point is still visible, just
+     * unlabelled. The unit then goes on the LAST label that actually
+     * survives decluttering, not blindly on the last tick — otherwise
+     * a crowded axis could end up with no unit shown at all. */
     const xRange = xR - xL;
+    const xs = visible.map((t) => xL + scalePos(model, axis, t, xRange));
+    const bareWidths = visible.map((t) => measureLabel(formatTickBare(t), fs - 1));
+    const show = declutterTickPositions(xs, bareWidths);
+    const lastShown = show.lastIndexOf(true);
     visible.forEach((t, idx) => {
-      const x = xL + scalePos(model, axis, t, xRange);
+      const x = xs[idx];
       out.push(`<line x1="${x}" y1="${padT + plotH - 4}" x2="${x}" y2="${padT + plotH + 4}" stroke="${theme.axis}" stroke-width="1"/>`);
-      const label = !uniformUnit || idx === unitTickIndex ? formatTick(t) : formatTickBare(t);
+      if (!show[idx]) return;
+      const label = !uniformUnit || idx === lastShown ? formatTick(t) : formatTickBare(t);
       out.push(`<text x="${x}" y="${padT + plotH + 22}" font-size="${fs - 1}" text-anchor="middle" fill="${theme.foreground}">${label}</text>`);
     });
   } else {
     /* Calibrated axis on the left, ticks and labels to its left, matching
-     * the spec's vertical reference figure. */
+     * the spec's vertical reference figure. Same decluttering as the
+     * horizontal axis, but along y — each label is one line tall
+     * regardless of its text length, so the "size" fed to the declutter
+     * pass is a fixed row height rather than a measured width. */
     const axisX = verticalAxisX(padL);
     out.push(`<line x1="${axisX}" y1="${padT}" x2="${axisX}" y2="${padT + plotH}" stroke="${theme.axis}" stroke-width="1"/>`);
-    /* The topmost tick (largest value) carries the unit — matches the
-     * horizontal axis's own "unit on the outermost tick" convention. */
-    const topMostIndex = visible.length - 1;
+    const ys = visible.map((t) => verticalY(model, axis, t, padT, plotH));
+    const rowHeights = visible.map(() => fs + 4);
+    const show = declutterTickPositions(ys, rowHeights);
+    const lastShown = show.lastIndexOf(true);
     visible.forEach((t, idx) => {
-      const y = verticalY(model, axis, t, padT, plotH);
+      const y = ys[idx];
       out.push(`<line x1="${axisX - 4}" y1="${y}" x2="${axisX + 4}" y2="${y}" stroke="${theme.axis}" stroke-width="1"/>`);
-      const label = !uniformUnit || idx === topMostIndex ? formatTick(t) : formatTickBare(t);
+      if (!show[idx]) return;
+      const label = !uniformUnit || idx === lastShown ? formatTick(t) : formatTickBare(t);
       out.push(`<text x="${axisX - 10}" y="${y + 4}" font-size="${fs - 1}" text-anchor="end" fill="${theme.foreground}">${label}</text>`);
     });
   }
   void padR;
   return out.join('\n');
+}
+
+/**
+ * Greedy left-to-right (or top-to-bottom) decluttering: given each tick's
+ * position along the axis and the on-axis size its label would occupy
+ * there, mark which ones can be labelled without overlapping the
+ * previous labelled tick. Ticks are assumed sorted ascending, which
+ * `buildTicks`/`collectIndicativeValues` both already guarantee.
+ */
+function declutterTickPositions(positions: number[], sizes: number[], gap = 6): boolean[] {
+  /* Sorted by POSITION, not by the caller's array order — the vertical
+   * axis's y decreases as tick VALUE increases (larger values sit
+   * higher up), so walking `positions` in the caller's (ascending
+   * value) order would process them top-to-bottom in value but
+   * bottom-to-top on screen, greedily "filling up" from the bottom and
+   * leaving everything above it unlabelled. Sorting by position first
+   * makes the walk always follow the axis's actual visual order,
+   * regardless of which direction the underlying values run. */
+  const order = positions.map((_, i) => i).sort((a, b) => positions[a] - positions[b]);
+  const show = new Array<boolean>(positions.length).fill(false);
+  let lastEdge = Number.NEGATIVE_INFINITY;
+  for (const i of order) {
+    const half = sizes[i] / 2;
+    if (positions[i] - half > lastEdge + gap) {
+      show[i] = true;
+      lastEdge = positions[i] + half;
+    }
+  }
+  return show;
 }
 
 /**
@@ -1050,20 +1096,29 @@ function gridLines(
   return out.join('\n');
 }
 
+/**
+ * Tick labels cap at one decimal place — capped, not FORCED, so a
+ * "nice" calibrated tick (buildTicks' own 2, 4, 6, 8 ...) still reads
+ * as a clean integer rather than "2.0 kA", while a tick that ISN'T
+ * nice — every distinct value on an indicative-scale axis, which can
+ * be a raw MVA→A conversion like 524.863881... — gets rounded to a
+ * sane one decimal place instead of the multi-decimal figure a plain
+ * default would produce.
+ */
 function formatTick(v: number): string {
   if (v <= 0) return '0';
-  if (v >= 1000) return formatPlain(v / 1000) + ' kA';
-  if (v < 1) return formatPlain(v * 1000) + ' A';
-  return formatPlain(v) + ' kA';
+  if (v >= 1000) return formatPlain(v / 1000, 1) + ' kA';
+  if (v < 1) return formatPlain(v * 1000, 0) + ' A';
+  return formatPlain(v, 1) + ' kA';
 }
 
 /** Same magnitude convention as formatTick, without the unit suffix —
  * used for every tick except the one that carries the axis's unit. */
 function formatTickBare(v: number): string {
   if (v <= 0) return '0';
-  if (v >= 1000) return formatPlain(v / 1000);
-  if (v < 1) return formatPlain(v * 1000);
-  return formatPlain(v);
+  if (v >= 1000) return formatPlain(v / 1000, 1);
+  if (v < 1) return formatPlain(v * 1000, 0);
+  return formatPlain(v, 1);
 }
 
 /** Whether formatTick would pick a DIFFERENT unit for different ticks in
@@ -1135,7 +1190,7 @@ function drawConstraint(
     isReference
       ? `<circle data-role="criterion" data-requirement="reference" cx="${cx}" cy="${cy}" r="5" fill="${bg}" stroke="${family}" stroke-width="2"/>`
       : `<circle data-role="criterion" cx="${cx}" cy="${cy}" r="6" fill="${family}"/>`;
-  const marginText = marginLabel(c);
+  const marginText = marginDisplayText(c, model);
   const countSuffix = groupNames && groupNames.length > 1 ? ` ×${groupNames.length}` : '';
   const displayName = groupNames && groupNames.length > 1 ? groupNames.join(', ') : c.label;
 
@@ -1170,15 +1225,18 @@ function drawConstraint(
       out.push(criterionDot(markerX, yC));
     }
 
-    if (yM !== null && marginSide === null && model.choices.arrows !== 'off') {
+    if (yM !== null && marginSide === null && model.choices.arrows !== 'off' && !isReference) {
       /* Arrow points toward acceptable values: for `below`, acceptable
        * values are higher, i.e. UP the vertical axis (smaller y); for
        * `above`, acceptable values are lower, i.e. DOWN (larger y).
        * Skipped when the margin itself is off-range — its exact
        * boundary position isn't on the visible axis to point from —
-       * or when `style arrows off` opts out of them entirely. Sits
-       * close against the open dot rather than floating well clear of
-       * it, so it still reads as "this dot's direction". */
+       * when `style arrows off` opts out of them entirely, or on a
+       * `reference` criterion's own (display-only) margin band: a
+       * reference point never expresses a requirement, so there is no
+       * "acceptable side" for an arrow to point toward. Sits close
+       * against the open dot rather than floating well clear of it, so
+       * it still reads as "this dot's direction". */
       const arrowDir = c.direction === 'below' ? -1 : 1;
       const arrowStart = yM + arrowDir * 9;
       const arrowEnd = yM + arrowDir * 17;
@@ -1255,9 +1313,11 @@ function drawConstraint(
     if (marginText) {
       out.push(`<text data-role="margin-value" x="${xM}" y="${y + row.valueBelow}" font-size="${fs - 1}" text-anchor="middle" fill="${theme.callout}">${escapeText(marginText)}</text>`);
     }
-    if (marginSide === null && model.choices.arrows !== 'off') {
+    if (marginSide === null && model.choices.arrows !== 'off' && !isReference) {
       /* short direction arrow outside the open dot pointing to acceptable
-       * values. For `below` constraints the selected must be > criterion,
+       * values — skipped on a `reference` criterion's own (display-only)
+       * margin band, which has no "acceptable side" to point toward.
+       * For `below` constraints the selected must be > criterion,
        * so the arrow at the open margin boundary points RIGHT (toward
        * higher values, which are the acceptable side). For `above` the
        * arrow points LEFT. Sits close against the dot — `style arrows
@@ -1289,6 +1349,19 @@ function marginLabel(c: Constraint): string {
   if (!c.margin) return '';
   if (c.margin.kind === 'percentage') return `${formatPlain(c.margin.value)}%`;
   return formatCondition(c.margin.value);
+}
+
+/** The text shown next to a margin-adjusted boundary's open circle:
+ * just the margin itself (e.g. "10%") normally, or — when `style
+ * boundary-current on` opts in — the boundary's own resulting current
+ * ahead of it (e.g. "7.2 kA · 10%"), for a reader who wants the actual
+ * amp value the open circle sits at, not just the percentage that
+ * produced it. */
+function marginDisplayText(c: Constraint, model: Resolved): string {
+  const marginText = marginLabel(c);
+  if (model.choices.boundaryCurrent !== 'on' || c.boundary_A === null || !Number.isFinite(c.boundary_A)) return marginText;
+  const boundaryText = formatCondition(c.boundary_A);
+  return marginText ? `${boundaryText} · ${marginText}` : boundaryText;
 }
 
 /** A kVA/MVA quantity entered with its own `@ X kV` (spec §Per-quantity

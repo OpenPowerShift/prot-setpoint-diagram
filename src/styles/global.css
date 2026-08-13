@@ -242,14 +242,6 @@ psdl-editor {
   border: 1px solid var(--psdl-border) !important;
 }
 
-.psdl-hover-help {
-  max-width: 320px;
-  padding: 6px 10px;
-  font-family: var(--psdl-sans);
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--psdl-fg);
-}
 
 .cm-tooltip-autocomplete > ul > li[aria-selected] {
   background: var(--psdl-accent) !important;

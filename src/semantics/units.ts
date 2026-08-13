@@ -97,29 +97,31 @@ export function formatQuantityForAxis(value: Quantity, settings: Settings): stri
 }
 
 export function formatAmps(amps: number, unit: 'A' | 'kA' = 'kA', decimals?: number): string {
-  if (unit === 'A') return `${formatPlain(amps)} A`;
+  if (unit === 'A') return decimals !== undefined ? `${amps.toFixed(decimals)} A` : `${formatPlain(amps)} A`;
   const kA = amps / 1000;
   return decimals !== undefined ? `${kA.toFixed(decimals)} kA` : `${formatPlain(kA)} kA`;
 }
 
 /**
- * Criterion, margin-boundary and mandatory/preferred-range values — the
- * diagram's "conditions" — always to one decimal place in kA, so a
- * column of them lines up instead of mixing "5 kA" with "6.35 kA".
- * Sub-1000 A values stay in A with no forced decimals; whole amps are
- * the natural unit there and rarely carry a fraction.
+ * Criterion, margin-boundary, mandatory/preferred-range and selected-
+ * setting values all share one precision rule: whole amps, one decimal
+ * place in kA. A value entered directly as whole amps (no unit
+ * conversion involved) costs nothing under this rule; a value that
+ * only exists in amps because it was CONVERTED from kVA/MVA is rarely
+ * whole, and three decimal places there is false precision — a setting
+ * is never dialled in to the nearest milliamp, so round it the same as
+ * every other amp figure on the diagram rather than carrying the raw
+ * conversion remainder.
  */
 export function formatCondition(amps: number): string {
-  return amps < 1000 ? formatAmps(amps, 'A') : formatAmps(amps, 'kA', 1);
+  return amps < 1000 ? formatAmps(amps, 'A', 0) : formatAmps(amps, 'kA', 1);
 }
 
-/**
- * The selected setting value — always to two decimal places in kA, one
- * more digit than a condition since a setting is what actually gets
- * dialled into a relay and the extra precision is real.
- */
+/** The selected setting value — same precision as a condition (see
+ * formatCondition); kept as its own named function since the two are
+ * conceptually distinct even where the formatting now matches. */
 export function formatSetting(amps: number): string {
-  return amps < 1000 ? formatAmps(amps, 'A') : formatAmps(amps, 'kA', 2);
+  return amps < 1000 ? formatAmps(amps, 'A', 0) : formatAmps(amps, 'kA', 1);
 }
 
 export function formatPlain(n: number, maxDecimals = 3): string {

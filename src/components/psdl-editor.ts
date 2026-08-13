@@ -1,7 +1,7 @@
 import { LitElement, html } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
-import { EditorState } from '@codemirror/state';
-import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, hoverTooltip } from '@codemirror/view';
+import { EditorState, RangeSetBuilder } from '@codemirror/state';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, drawSelection, Decoration, type DecorationSet, ViewPlugin, type ViewUpdate } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { searchKeymap } from '@codemirror/search';
 import { autocompletion } from '@codemirror/autocomplete';
@@ -70,7 +70,7 @@ export class PsdlEditor extends LitElement {
           activateOnTyping: true,
           maxRenderedOptions: 50,
         }),
-        keywordHoverTooltip,
+        keywordHintPlugin,
         linter(() => this.toCmDiagnostics(this.marks)),
         lintGutter(),
         EditorView.updateListener.of((v) => {
@@ -164,7 +164,7 @@ const KEYWORD_HELP: Record<string, string> = {
   scale: 'Axis scale: `auto`, `linear`, `log`, or `indicative` (ordered, non-calibrated spacing).',
   range: 'Axis bounds: `auto`, `all`, `focus` (around controlling boundaries), or an explicit `LOW to HIGH kA`.',
   word: 'Overrides a status word\'s displayed text, e.g. `word caution "Review"`.',
-  style: 'Visual options: `theme`, `palette`, `zones`, `connections`, `title`, `title-align`, `title-position`, `arrows`.',
+  style: 'Visual options: `theme`, `palette`, `zones`, `connections`, `title`, `title-align`, `title-position`, `arrows`, `boundary-current`.',
   size: 'Explicit canvas dimension in pixels: `size width N` and/or `size height N`.',
   secondary: 'Second calibrated axis on the opposite side of the plot: `secondary axis top|bottom kA|MVA`.',
   below: 'A criterion the selected value must stay ABOVE, e.g. `below "Maximum load" must 3.5 kA`.',
@@ -182,30 +182,49 @@ const KEYWORD_HELP: Record<string, string> = {
 };
 
 /** Hovering a PSDL keyword shows its one-line description — spec §Help:
- * "keyword help MUST be available without leaving the editor." Matches
- * the word under the pointer against KEYWORD_HELP; anything else (a
- * string, number, or criterion label) gets no tooltip. */
-const keywordHoverTooltip = hoverTooltip((view, pos) => {
-  const { from, to, text } = view.state.doc.lineAt(pos);
-  let start = pos, end = pos;
-  while (start > from && /\w/.test(text[start - from - 1])) start--;
-  while (end < to && /\w/.test(text[end - from])) end++;
-  if (start === end) return null;
-  const word = text.slice(start - from, end - from);
-  const help = KEYWORD_HELP[word];
-  if (!help) return null;
-  return {
-    pos: start,
-    end,
-    above: true,
-    create() {
-      const dom = document.createElement('div');
-      dom.className = 'psdl-hover-help';
-      dom.textContent = help;
-      return { dom };
-    },
-  };
-});
+ * "keyword help MUST be available without leaving the editor." Implemented
+ * as a `title` attribute on a mark decoration over each keyword occurrence,
+ * so the BROWSER'S OWN native tooltip does the showing/positioning/hiding —
+ * deliberately not CodeMirror's `hoverTooltip` extension: that computes a
+ * fresh tooltip position on every qualifying mousemove, and in practice
+ * that recomputation loop could run away and freeze the tab (observed
+ * hanging the page for any hovered keyword, not just one). A `title`
+ * attribute carries none of that risk — the browser handles it the exact
+ * same way it handles a plain `<abbr title="…">`, with a fixed, cheap
+ * delay/position/dismiss it already implements everywhere.
+ */
+const KEYWORD_RE = /[A-Za-z][A-Za-z-]*/g;
+
+function buildKeywordHints(view: EditorView): DecorationSet {
+  const builder = new RangeSetBuilder<Decoration>();
+  for (const { from, to } of view.visibleRanges) {
+    const text = view.state.doc.sliceString(from, to);
+    KEYWORD_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = KEYWORD_RE.exec(text))) {
+      const help = KEYWORD_HELP[m[0]];
+      if (help) {
+        builder.add(from + m.index, from + m.index + m[0].length, Decoration.mark({ attributes: { title: help } }));
+      }
+    }
+  }
+  return builder.finish();
+}
+
+const keywordHintPlugin = ViewPlugin.fromClass(
+  class {
+    decorations: DecorationSet;
+    constructor(view: EditorView) {
+      this.decorations = buildKeywordHints(view);
+    }
+    update(update: ViewUpdate): void {
+      if (update.docChanged || update.viewportChanged) {
+        this.decorations = buildKeywordHints(update.view);
+      }
+    }
+  },
+  { decorations: (v) => v.decorations },
+);
 
 const STATEMENT_COMPLETIONS: { label: string; type: string; detail: string }[] = [
   { label: 'diagram', type: 'keyword', detail: 'diagram "Title" { ... }' },

@@ -274,7 +274,7 @@ const TYPE_KEYWORDS = new Set([
 const DISPLAY_QUANTITIES: DisplayQuantity[] = ['entered', 'current', 'mva', 'secondary'];
 const SCALE_KINDS: ScaleKind[] = ['linear', 'log', 'indicative', 'auto'];
 const VIEW_KINDS: ViewKind[] = ['report', 'compact', 'rail'];
-const STYLE_PROPERTIES = new Set(['theme', 'palette', 'zones', 'connections', 'title', 'title-align', 'title-position', 'arrows']);
+const STYLE_PROPERTIES = new Set(['theme', 'palette', 'zones', 'connections', 'title', 'title-align', 'title-position', 'arrows', 'boundary-current']);
 const STYLE_VALUES = new Set<string>([
   // theme
   'light',
@@ -772,22 +772,15 @@ export function parse(src: string): ParseResult {
     }
     let margin: Margin | undefined;
     if (at('identifier') && peek().text === 'margin') {
-      const marginTok = peek();
       next();
       const m = parseMargin();
-      /* A `reference` point plots but never participates in banding —
-       * a margin (which only exists to define a preferred boundary)
-       * has nothing to attach to, so treat it as an error rather than
-       * silently accepting and ignoring it. */
-      if (requirement === 'reference') {
-        pushError(
-          'PSDL006_MARGIN_NOT_APPLICABLE',
-          `'reference' criteria do not participate in banding and cannot carry a margin.`,
-          marginTok.loc,
-        );
-      } else if (m) {
-        margin = m;
-      }
+      /* A `reference` point still never participates in banding — its
+       * margin, when given, is display-only (a neutral band around the
+       * point for context), not a preferred-interval boundary. Model
+       * and renderer both need to keep excluding `reference` from the
+       * mandatory/preferred calculation even though it now carries a
+       * `boundary_A` the same as a must/should criterion would. */
+      if (m) margin = m;
     }
     return {
       type: 'constraint',
