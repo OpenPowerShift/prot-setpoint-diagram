@@ -295,9 +295,18 @@ const MIN_AXIS_WIDTH_LOG = 560;
  * now share the same row sequence (staggered by half a pitch) instead of
  * each family getting its own half of the plot, so this only needs to
  * clear one row's own value/margin text, not two families stacked
- * end-to-end.
+ * end-to-end — but it DOES need to clear that: a row's value text sits
+ * above its marker (valueAbove) and its margin text below (valueBelow),
+ * and the next row's own value text starts (ROW_PITCH) further down —
+ * too tight a pitch runs a row's margin text straight into the NEXT
+ * row's value text above. 52 clears both at the current font size, with
+ * `style boundary-current on`'s longer margin text (e.g. "13.5 kA ·
+ * 30%") included — that text is only wider, not taller, but the
+ * pre-existing pitch left just a few px of vertical clearance even for
+ * the plain "30%" case, so it read as a collision either way once
+ * checked against actual glyph metrics rather than eyeballed spacing.
  */
-const ROW_PITCH = 38;
+const ROW_PITCH = 52;
 /** Extra vertical space a `secondary axis bottom` reserves below the
  * plot — line + ticks + one row of labels, clear of the primary axis's
  * own tick-label row. (`top` uses SECONDARY_TOP_ROW instead — see the
