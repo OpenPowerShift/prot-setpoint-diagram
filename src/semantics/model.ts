@@ -23,8 +23,10 @@ import {
   ResolvedSettings,
   directionEffect,
   formatAmps,
+  formatCondition,
   formatPercent,
   formatPlain,
+  formatSetting,
   percentMarginValueIsValid,
   resolveSettings,
   toAmps,
@@ -35,12 +37,21 @@ import {
 export interface PercentLine {
   text: string;
   level: 'info' | 'warning' | 'error';
+  /** Which preferred-interval edge this reports against — lets a
+   * renderer place a compact annotation at that edge on the diagram
+   * itself, rather than only in the text line. */
+  edge: 'lower' | 'upper';
+  /** Signed headroom, unrounded: positive on the acceptable side,
+   * negative once crossed. Same number `text` renders, exposed
+   * separately so a renderer can format/colour it without parsing
+   * `text`. */
+  percent: number;
 }
 
 export interface Constraint {
   label: string;
   direction: 'below' | 'above';
-  requirement: 'must' | 'should';
+  requirement: 'must' | 'should' | 'reference';
   /** Original value (entered), in axis amps (A). */
   value_A: number;
   /** Margin-adjusted value, in axis amps (A). Undefined = no margin. */
@@ -115,6 +126,11 @@ export interface Resolved {
   };
   /** Lightweight messages for the right-hand pane, e.g. "115% of 5.5 kA lower boundary · 15% above". */
   selectedPercents?: PercentLine[];
+  /** `secondary axis` (spec §Secondary axis) — a second calibrated axis
+   * on the opposite side of the plot from where it's declared, relabelling
+   * the same physical positions in a different quantity/voltage. Renderer
+   * support is horizontal-orientation only. */
+  secondaryAxis?: { position: 'top' | 'bottom'; quantity: 'kA' | 'MVA'; voltage_kV?: number };
   displayToggle: { showEntered: boolean; showCurrent: boolean; showMva: boolean; showSecondary: boolean; voltage_kV?: number; ct?: { primary: number; secondary: number } };
   display: Display | null;
   diagnostics: Diagnostic[];
@@ -125,6 +141,7 @@ export interface Resolved {
     theme: 'light' | 'dark' | 'print' | 'monochrome';
     zones: 'off' | 'subtle' | 'full';
     connections: 'off' | 'pale' | 'rows';
+    title: 'on' | 'off';
     words: Partial<Record<import('../parser/ast.js').WordName, string>>;
   };
 }
@@ -177,7 +194,8 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
     | { kind: 'explicit'; minimum_A: number; maximum_A: number } = 'auto';
   const constraints: ConstraintStatement[] = [];
   let selectionStmt: SelectionStatement | undefined;
-  const paletteChoice: { palette: 'accessible' | 'default' | 'high-contrast' | 'monochrome'; theme: 'light' | 'dark' | 'print' | 'monochrome'; zones: 'off' | 'subtle' | 'full'; connections: 'off' | 'pale' | 'rows' } = { palette: 'accessible', theme: 'print', zones: 'subtle', connections: 'pale' };
+  let secondaryAxisStmt: import('../parser/ast.js').SecondaryAxisStatement | undefined;
+  const paletteChoice: { palette: 'accessible' | 'default' | 'high-contrast' | 'monochrome'; theme: 'light' | 'dark' | 'print' | 'monochrome'; zones: 'off' | 'subtle' | 'full'; connections: 'off' | 'pale' | 'rows'; title: 'on' | 'off' } = { palette: 'accessible', theme: 'print', zones: 'subtle', connections: 'pale', title: 'on' };
   const wordChoices: Partial<Record<import('../parser/ast.js').WordName, string>> = {};
 
   for (const stmt of doc.body) {
@@ -228,6 +246,9 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
         if (stmt.property === 'connections' && ['off', 'pale', 'rows'].includes(stmt.value)) {
           paletteChoice.connections = stmt.value as typeof paletteChoice.connections;
         }
+        if (stmt.property === 'title' && ['on', 'off'].includes(stmt.value)) {
+          paletteChoice.title = stmt.value as typeof paletteChoice.title;
+        }
         break;
       case 'word':
         wordChoices[stmt.name] = stmt.text;
@@ -237,6 +258,9 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
         break;
       case 'selection':
         selectionStmt = stmt;
+        break;
+      case 'secondary-axis':
+        secondaryAxisStmt = stmt;
         break;
       case 'voltage':
       case 'ct':
@@ -628,12 +652,30 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
 
   /* selected-value percentages */
   const percents: Resolved['selectedPercents'] =
-    selection && Number.isFinite(selection.value_A) ? buildPercents(selection, lower, upper, mandatory, preferred, status) : undefined;
+    selection && Number.isFinite(selection.value_A) ? buildPercents(selection, lower, upper, mandatory, status) : undefined;
 
   /* display (current / mva / secondary) */
   let display: Display | null = null;
   if (Number.isFinite(selection.value_A)) {
     display = buildDisplay(selection, settings);
+  }
+
+  /* secondary axis (spec §Secondary axis) */
+  let secondaryAxis: Resolved['secondaryAxis'];
+  if (secondaryAxisStmt) {
+    const voltage_kV = secondaryAxisStmt.voltageOverride?.value ?? settings.voltage_kV;
+    if (secondaryAxisStmt.quantity === 'MVA' && voltage_kV === undefined) {
+      diagnostics.push({
+        code: 'PSDL107_UNIT_INCOMPATIBLE',
+        severity: 'error',
+        message: `Secondary axis in MVA requires a voltage — declare 'voltage' or add '@ X kV' to the secondary axis.`,
+        line: secondaryAxisStmt.loc.line,
+        column: secondaryAxisStmt.loc.column,
+        offset: secondaryAxisStmt.loc.offset,
+        length: 9,
+      });
+    }
+    secondaryAxis = { position: secondaryAxisStmt.position, quantity: secondaryAxisStmt.quantity, voltage_kV };
   }
 
   return {
@@ -647,6 +689,7 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
       selection,
       controlling: { lower, upper },
       selectedPercents: percents,
+      secondaryAxis,
       displayToggle: {
         showEntered: settings.showEntered,
         showCurrent: settings.display.includes('current'),
@@ -664,6 +707,7 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
         theme: paletteChoice.theme,
         zones: paletteChoice.zones,
         connections: paletteChoice.connections,
+        title: paletteChoice.title,
         words: wordChoices,
       },
     },
@@ -1072,6 +1116,17 @@ function applyStyle(diagnostics: Diagnostic[], stmt: import('../parser/ast.js').
       length: 10,
     });
   }
+  if (stmt.property === 'title' && !['on', 'off'].includes(stmt.value)) {
+    diagnostics.push({
+      code: 'PSDL001_UNKNOWN_STATEMENT',
+      severity: 'error',
+      message: `Unknown title value '${stmt.value}'.`,
+      line: stmt.loc.line,
+      column: stmt.loc.column,
+      offset: stmt.loc.offset,
+      length: 5,
+    });
+  }
 }
 
 /**
@@ -1110,62 +1165,57 @@ function buildPercents(
   lower: ControllingBoundary | null,
   upper: ControllingBoundary | null,
   mandatory: AxisInterval,
-  preferred: AxisInterval,
   status: Status,
 ): NonNullable<Resolved['selectedPercents']> {
   const out: NonNullable<Resolved['selectedPercents']> = [];
   if (!lower && !upper) return out;
   if (status === 'no-compliant-setting') return out;
   const s = selection.value_A;
-  /* Spec §Selected-setting percentages: "Non-controlling, remote
-   * percentages SHOULD be suppressed to avoid noise." The mandatory
-   * boundary and the preferred boundary on the same side are very
-   * commonly the SAME controlling criterion (preferred is derived from
-   * mandatory via margin), so once a side has reported its mandatory
-   * crossing, don't also report a preferred crossing for that side —
-   * it would repeat the identical "X% of Y boundary" line. */
-  let lowerReported = false;
-  let upperReported = false;
+
+  /* A must-criterion is already broken — report only the crossed
+   * mandatory boundary. The healthy far side isn't useful context once
+   * a hard limit has been crossed, and the two mandatory bounds can't
+   * both be crossed at once (mandatory is non-empty here). */
   if (Number.isFinite(mandatory.minimum) && s < mandatory.minimum && lower) {
-    out.push(percentLine(s, lower, 'below', 'error'));
-    lowerReported = true;
+    return [percentLine(s, lower, 'error')];
   }
   if (Number.isFinite(mandatory.maximum) && s > mandatory.maximum && upper) {
-    out.push(percentLine(s, upper, 'above', 'error'));
-    upperReported = true;
+    return [percentLine(s, upper, 'error')];
   }
-  const crossingUp = Number.isFinite(preferred.maximum) && s > preferred.maximum;
-  if (crossingUp && upper && !upperReported) {
-    out.push(percentLine(s, upper, 'above', status === 'caution' ? 'warning' : 'info'));
-  } else if (!crossingUp && Number.isFinite(preferred.minimum) && s < preferred.minimum && lower && !lowerReported) {
-    out.push(percentLine(s, lower, 'below', status === 'caution' ? 'warning' : 'info'));
-  }
-  if (out.length === 0) {
-    /* Inside both intervals — report the nearer controlling boundary.
-     * Direction must reflect where the selection actually sits relative
-     * to THAT boundary, not be assumed from the boundary's family: the
-     * selection is normally on the acceptable side (above a lower
-     * boundary, below an upper boundary), so compare rather than guess. */
-    if (lower) {
-      out.push(percentLine(s, lower, s >= lower.boundary_A ? 'above' : 'below', 'info'));
-    } else if (upper) {
-      out.push(percentLine(s, upper, s <= upper.boundary_A ? 'below' : 'above', 'info'));
-    }
-  }
+
+  /* Every mandatory criterion is satisfied — annotate BOTH edges of the
+   * green (preferred) zone relative to the selected value, whether S
+   * sits inside them (headroom, positive) or has crossed one (caution,
+   * negative). One signed number per edge, not a ratio+clearance pair:
+   * e.g. "+15.5%" / "-11.8%" reads directly as margin remaining /
+   * margin exceeded, without a second number to reconcile against it. */
+  const level = status === 'caution' ? 'warning' : 'info';
+  if (lower) out.push(percentLine(s, lower, level));
+  if (upper) out.push(percentLine(s, upper, level));
   return out;
 }
 
-function percentLine(s: number, boundary: ControllingBoundary, direction: 'above' | 'below', level: 'info' | 'warning' | 'error'): PercentLine {
-  /* Spec §Selected-setting percentages: "115% of 5.5 kA lower boundary ·
-   * 15% above" — the boundary is named 'lower'/'upper' (its family),
-   * distinct from 'direction' (where the selection sits relative to it). */
-  const boundStr = formatAmps(boundary.boundary_A, boundary.boundary_A < 1000 ? 'A' : 'kA');
+function percentLine(s: number, boundary: ControllingBoundary, level: 'info' | 'warning' | 'error'): PercentLine {
+  /* Spec §Selected-setting percentages: a single signed percentage of
+   * the boundary itself — "5.5 kA lower boundary +15.5%" — rather than
+   * a ratio ("115% of...") paired with a redundant clearance figure.
+   * Positive means S sits on the acceptable side with that much
+   * headroom; negative means S has crossed the boundary by that much. */
+  const boundStr = formatCondition(boundary.boundary_A);
   const boundaryWord = boundary.direction === 'below' ? 'lower' : 'upper';
-  const ratio = (s / boundary.boundary_A) * 100;
-  const clearance = Math.abs(s - boundary.boundary_A) / boundary.boundary_A * 100;
+  /* Raw (S - boundary)/boundary is signed toward "S is numerically
+   * bigger", not toward "S is safe" — for a `below` criterion (S MUST
+   * be >= boundary) those agree, but for an `above` criterion (S MUST
+   * be <= boundary) they're opposite, so flip it there. Without this an
+   * upper-boundary crossing would read as a positive percentage. */
+  const raw = (s - boundary.boundary_A) / boundary.boundary_A * 100;
+  const signedPct = boundary.direction === 'below' ? raw : -raw;
+  const sign = signedPct >= 0 ? '+' : '';
   return {
-    text: `${formatPercent(ratio)} of ${boundStr} ${boundaryWord} boundary · ${formatPercent(clearance)} ${direction}`,
+    text: `${boundStr} ${boundaryWord} boundary ${sign}${formatPercent(signedPct)}`,
     level,
+    edge: boundaryWord,
+    percent: signedPct,
   };
 }
 
@@ -1176,10 +1226,11 @@ function buildDisplay(selection: Selection, settings: { voltage_kV?: number; ct?
    * would not reproduce the entered figure — confusing without an
    * obvious reason why. Prefer the entered override so "entered 200 MVA
    * @ 11 kV" and the displayed MVA stay the same number. */
-  const mvaVoltage_kV = selection.entered?.voltageOverride?.value ?? settings.voltage_kV;
+  const overrideVoltage_kV = selection.entered?.voltageOverride?.value;
+  const mvaVoltage_kV = overrideVoltage_kV ?? settings.voltage_kV;
   return {
     value_A,
-    primary: { label: 'Current', text: formatAmps(value_A) },
+    primary: { label: 'Current', text: formatSetting(value_A) },
     /* Display precision, not internal precision: three decimals on an
      * MVA figure ("362.951 MVA") is false precision for a setting
      * report. Spec §Resolved result model shows MVA to one decimal;
@@ -1188,7 +1239,7 @@ function buildDisplay(selection: Selection, settings: { voltage_kV?: number; ct?
       ? { label: 'Secondary', text: formatPlain(toSecondaryAmps(value_A, settings.ct), 3) + ' A' }
       : undefined,
     mva: mvaVoltage_kV !== undefined
-      ? { label: 'MVA', text: formatPlain(toMVA(value_A, mvaVoltage_kV), 1) + ' MVA' }
+      ? { label: 'MVA', text: formatPlain(toMVA(value_A, mvaVoltage_kV), 1) + ' MVA' + nominalMvaSuffix(value_A, overrideVoltage_kV, settings.voltage_kV) }
       : undefined,
     entered: selection.entered
       ? {
@@ -1197,4 +1248,21 @@ function buildDisplay(selection: Selection, settings: { voltage_kV?: number; ct?
         }
       : undefined,
   };
+}
+
+/**
+ * When a setting's MVA was converted at its own `@` override voltage
+ * rather than the diagram's nominal one, the displayed MVA figure isn't
+ * directly comparable to another set point that used the nominal
+ * voltage — the same current reads as a different MVA at each voltage.
+ * Cross-reference what this current would read as at the diagram's own
+ * nominal voltage, so set points from either side of a transformer stay
+ * comparable at a glance. Omitted when there's no override, or the
+ * override happens to equal the nominal voltage — the figure already
+ * shown would just repeat itself.
+ */
+function nominalMvaSuffix(value_A: number, overrideVoltage_kV: number | undefined, nominalVoltage_kV: number | undefined): string {
+  if (overrideVoltage_kV === undefined || nominalVoltage_kV === undefined || overrideVoltage_kV === nominalVoltage_kV) return '';
+  const nominalMva = toMVA(value_A, nominalVoltage_kV);
+  return ` (${formatPlain(nominalMva, 1)} MVA @ ${formatPlain(nominalVoltage_kV)} kV nominal)`;
 }

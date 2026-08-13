@@ -1,7 +1,7 @@
 import type { Resolved, Constraint } from '../semantics/model.js';
 import type { WordName } from '../parser/ast.js';
 import { PALETTES, THEMES, buildTicks, valueToPosition, positionToValue } from './theme.js';
-import { formatAmps, formatPercent, formatPlain } from '../semantics/units.js';
+import { formatCondition, formatPercent, formatPlain, formatSetting, mvaToAmps, toMVA } from '../semantics/units.js';
 
 interface RenderOptions {
   width?: number;
@@ -52,10 +52,20 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
    * calibrated axis between them. */
   const { left: leftGutter, right: rightGutter } = horizontalGutters(model, fs);
 
+  /* A `secondary axis` (horizontal only) reserves its own line/ticks/
+   * labels row on whichever side it's declared, on top of the usual
+   * title/axis/status padding. */
+  const secondaryAxis = o === 'horizontal' ? model.secondaryAxis : undefined;
+  /* Horizontal only: the zone percent annotations get their own row
+   * above the selected label — criterion rows already fill the plot
+   * itself top to bottom, so there's nowhere inside it to put them. */
+  const hasZonePercent = o === 'horizontal' && !!model.selectedPercents && model.selectedPercents.length > 0;
   const padL = PAD_L;
   const padR = PAD_R;
-  const padT = 60;  /* title + selected label space */
-  const padB = 80;  /* axis + status callout */
+  const padT = (model.choices.title === 'off' ? 28 : 60)
+    + (secondaryAxis?.position === 'top' ? SECONDARY_AXIS_H : 0)
+    + (hasZonePercent ? ZONE_PERCENT_EXTRA_H : 0);  /* title + selected label space */
+  const padB = 80 + (secondaryAxis?.position === 'bottom' ? SECONDARY_AXIS_H : 0);  /* axis + status callout */
 
   const plotW = declareWidth - padL - padR;
   const plotH = declareHeight - padB - padT;
@@ -87,25 +97,42 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
    * the longest ones). With explicit dimensions, max-width:100% caps
    * growth at the authored size and still shrinks on narrow viewports. */
   parts.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${declareWidth}" height="${declareHeight}" viewBox="0 0 ${declareWidth} ${declareHeight}" data-orientation="${o}" data-status="${model.status}" data-title="${escapeAttr(model.title)}" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif">`);
-  parts.push(`<rect x="0" y="0" width="${declareWidth}" height="${declareHeight}" fill="${theme.background}"/>`);
 
+  /* Explicit paint-order layers, back to front. This is redundant with
+   * document order alone (SVG already paints later elements on top) but
+   * makes the intended z-order self-documenting so a future change to
+   * one layer's contents can't accidentally reorder it relative to the
+   * others — e.g. a marker must never end up under the grid it sits on. */
+  parts.push(`<g data-layer="background">`);
+  parts.push(`<rect x="0" y="0" width="${declareWidth}" height="${declareHeight}" fill="${theme.background}"/>`);
+  parts.push(`</g>`);
+
+  parts.push(`<g data-layer="chrome">`);
   /* Title + selected label above the plot */
   parts.push(header(model, declareWidth, padT, fs, theme, palette));
 
   /* Spec §Scale: indicative scale MUST show this notice — the axis is
    * ordered but not calibrated to value. */
   if (axis.scale === 'indicative') {
-    parts.push(`<text data-role="indicative-notice" x="${declareWidth - padR}" y="${padT - 12}" font-size="${fs - 2}" font-weight="700" text-anchor="end" letter-spacing="0.3" fill="${theme.callout}">INDICATIVE SPACING — NOT TO SCALE</text>`);
+    parts.push(`<text data-role="indicative-notice" x="${declareWidth - padR}" y="${padT - 12}" font-size="${fs - 2}" font-weight="700" text-anchor="end" letter-spacing="0.3" fill="${theme.callout}">Indicative spacing — not to scale</text>`);
   }
+  parts.push(`</g>`);
 
+  parts.push(`<g data-layer="grid">`);
   /* Background zones inside the plot */
   for (const z of zoneParts) parts.push(z);
 
   /* Frame: vertical lines at the gutters, horizontal axis at the bottom */
   parts.push(frame(model, axis, padL, padR, padT, plotW, plotH, o, ticks, fs, theme, leftGutter, rightGutter));
 
-  /* Grid lines */
+  /* Grid lines — MUST stay under the markers layer below (spec: not on
+   * top of a filled criterion dot). */
   parts.push(gridLines(model, axis, padL, padT, plotW, plotH, o, ticks, theme, leftGutter, rightGutter));
+
+  if (secondaryAxis) {
+    parts.push(secondaryAxisFrame(model, axis, secondaryAxis, padL, padT, plotW, plotH, fs, theme, leftGutter, rightGutter));
+  }
+  parts.push(`</g>`);
 
   const hasSelection = Number.isFinite(model.selection.value_A);
   const selY = o === 'vertical' && hasSelection ? verticalYClamped(model, axis, model.selection.value_A / 1000, padT, plotH) : null;
@@ -144,6 +171,7 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
     });
   }
 
+  parts.push(`<g data-layer="markers">`);
   /* Constraints (each on its own row). Constraints sharing an exact
    * (direction, value, boundary) triple would otherwise draw stacked,
    * indistinguishable markers — draw once per group, at its
@@ -154,7 +182,9 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
     const row = rows[i];
     parts.push(drawConstraint(g.representative, row, model, axis, padL, padT, plotW, plotH, o, fs, theme, palette, leftGutter, rightGutter, vLabelY ? vLabelY[i] : null, g.names.length > 1 ? g.names : null, vMarkerX ? vMarkerX[i] : 0));
   }
+  parts.push(`</g>`);
 
+  parts.push(`<g data-layer="foreground">`);
   /* Selected — orange line + selected label. The status text is anchored
    * to it (spec's own reference figures place both directly against the
    * selected line, not at a fixed canvas position) rather than centred
@@ -181,6 +211,7 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
     }
     parts.push(statusCallout(model, anchorX, declareHeight, fs, theme, palette));
   }
+  parts.push(`</g>`);
 
   parts.push(`</svg>`);
   return parts.join('\n');
@@ -200,6 +231,16 @@ const MIN_AXIS_WIDTH = 400;
  * soon as a family had three or more criteria.
  */
 const ROW_PITCH = 42;
+/** Extra vertical space a `secondary axis` reserves on whichever side
+ * (top or bottom) it's drawn on — line + ticks + one row of labels,
+ * with enough clearance to also not collide with the selected-value
+ * label that already lives in the same strip above the plot. */
+const SECONDARY_AXIS_H = 76;
+/** Extra vertical space reserved above a horizontal plot for the zone
+ * percent annotations — they sit in their own row above the selected
+ * label, not inside the plot (which criterion rows already fill top to
+ * bottom, leaving nowhere clear to put a third line of text). */
+const ZONE_PERCENT_EXTRA_H = 20;
 
 /**
  * Spec §Layout step 9: "Combine identical positions into one marker
@@ -343,7 +384,7 @@ function defaultCanvasSize(model: Resolved, o: 'horizontal' | 'vertical', fs: nu
     const labelX = verticalLabelX(40);
     const longestCriterion = Math.max(0, ...groupConstraints(model.constraints).map((g) => {
       const c = g.representative;
-      const valueText = formatAmps(c.value_A, c.value_A < 1000 ? 'A' : 'kA') + (g.names.length > 1 ? ` ×${g.names.length}` : '');
+      const valueText = formatCondition(c.value_A) + (g.names.length > 1 ? ` ×${g.names.length}` : '') + voltageOverrideSuffix(c.entered);
       const m = marginLabel(c);
       const name = groupDisplayName(g);
       return measureLabel(m ? `${name} · ${valueText} (margin ${m})` : `${name} · ${valueText}`, fs);
@@ -353,7 +394,8 @@ function defaultCanvasSize(model: Resolved, o: 'horizontal' | 'vertical', fs: nu
       statusW = measureLabel(statusText(model, PALETTES.accessible).detail, fs - 1);
     }
     const width = Math.max(420, labelX + Math.max(longestCriterion, statusW) + 40);
-    return { width, height: Math.max(320, 130 + n * 78) };
+    const titleAllowance = model.choices.title === 'off' ? 90 : 130;
+    return { width, height: Math.max(320, titleAllowance + n * 78) };
   }
   const upperCount = model.constraints.filter((c) => c.direction === 'above').length;
   const lowerCount = model.constraints.filter((c) => c.direction === 'below').length;
@@ -366,13 +408,17 @@ function defaultCanvasSize(model: Resolved, o: 'horizontal' | 'vertical', fs: nu
    * spacing, and each row needs headroom for its value text (above) and
    * margin text (below). Solve so the taller family fits its half. */
   const halfNeed = (maxFamily - 1) * ROW_PITCH + 40;
-  const height = Math.max(280, padTB() + 2 * halfNeed);
+  const hasSecondaryAxis = o === 'horizontal' && !!model.secondaryAxis;
+  const hasZonePercent = o === 'horizontal' && !!model.selectedPercents && model.selectedPercents.length > 0;
+  const height = Math.max(280, padTB(model.choices.title !== 'off', hasSecondaryAxis, hasZonePercent) + 2 * halfNeed);
   return { width, height };
 }
 
-/** Vertical padding the plot does not get to use (title + axis/status). */
-function padTB(): number {
-  return 60 + 80;
+/** Vertical padding the plot does not get to use (title + axis/status,
+ * plus a secondary axis's own line/ticks/labels row and/or the zone
+ * percent annotations' row, when present). */
+function padTB(titleOn: boolean, hasSecondaryAxis: boolean, hasZonePercent: boolean): number {
+  return (titleOn ? 60 : 28) + 80 + (hasSecondaryAxis ? SECONDARY_AXIS_H : 0) + (hasZonePercent ? ZONE_PERCENT_EXTRA_H : 0);
 }
 
 /** Layout one row per constraint. Lower family occupies the lower half
@@ -421,6 +467,7 @@ function measureLabel(text: string, fs: number): number {
 }
 
 function header(model: Resolved, width: number, padT: number, fs: number, theme: { foreground: string }, palette: { selected: string }): string {
+  if (model.choices.title === 'off') return '';
   return `<g data-role="header">
     <text x="40" y="32" font-size="${fs + 6}" font-weight="700" fill="${theme.foreground}">${escapeText(model.title)}</text>
     <line x1="40" y1="44" x2="${width - 40}" y2="44" stroke="#d0d7de" stroke-width="0.5"/>
@@ -471,7 +518,101 @@ function zones(
   if (Number.isFinite(p.minimum) && Number.isFinite(p.maximum) && p.minimum > p.maximum) {
     out.push(zoneRect(model, axis, Math.min(p.minimum, p.maximum), Math.max(p.minimum, p.maximum), padL, padT, plotW, plotH, o, conflictColor, 0.45, leftGutter, rightGutter));
   }
-  void warnColor; void palette;
+  /* Signed headroom, annotated INSIDE the top of the green zone itself —
+   * "5.5 kA +15.5%" — rather than only as a text line elsewhere on the
+   * page (this is now the ONE place these numbers appear; the footer
+   * status detail deliberately stops repeating them, see statusText). */
+  if (model.selectedPercents && model.selectedPercents.length > 0) {
+    out.push(...zonePercentAnnotations(model, axis, padL, padT, plotW, plotH, o, palette, leftGutter, rightGutter));
+  }
+  void warnColor;
+  return out;
+}
+
+function zonePercentAnnotations(
+  model: Resolved,
+  axis: Resolved['axis'],
+  padL: number,
+  padT: number,
+  plotW: number,
+  plotH: number,
+  o: 'horizontal' | 'vertical',
+  palette: { recommended: string; caution: string; conflict: string },
+  leftGutter: number,
+  rightGutter: number,
+): string[] {
+  const lines = model.selectedPercents ?? [];
+  const out: string[] = [];
+  const colorFor = (line: NonNullable<Resolved['selectedPercents']>[number]) =>
+    line.percent >= 0 ? palette.recommended : line.level === 'error' ? palette.conflict : palette.caution;
+  /* The boundary a line's percentage was actually computed against
+   * (model.controlling), not model.preferredInterval — the two usually
+   * coincide but can differ when several criteria share a side, and
+   * positioning against the wrong one would silently mislabel it. */
+  const boundaryFor = (line: NonNullable<Resolved['selectedPercents']>[number]): number | undefined =>
+    line.edge === 'lower' ? model.controlling.lower?.boundary_A : model.controlling.upper?.boundary_A;
+  const textFor = (line: NonNullable<Resolved['selectedPercents']>[number], boundary_A: number) => {
+    const sign = line.percent >= 0 ? '+' : '';
+    return `${formatCondition(boundary_A)} ${sign}${formatPercent(line.percent)}`;
+  };
+
+  if (o === 'horizontal') {
+    const xL = padL + leftGutter;
+    const xR = padL + plotW - rightGutter;
+    /* Above the plot, in its own row well clear of the selected label
+     * (padT-12) — criterion rows already fill the plot's own top edge
+     * top-to-bottom, so there's no clean spot for a third text row
+     * inside it the way vertical's slim band allows. */
+    const y = padT - 26;
+    const positioned = lines
+      .map((line) => {
+        const boundary_A = boundaryFor(line);
+        if (boundary_A === undefined || !Number.isFinite(boundary_A)) return null;
+        const x = xL + scalePos(model, axis, boundary_A / 1000, xR - xL);
+        return { line, boundary_A, x, text: textFor(line, boundary_A) };
+      })
+      .filter((v): v is { line: NonNullable<Resolved['selectedPercents']>[number]; boundary_A: number; x: number; text: string } => v !== null)
+      .sort((a, b) => a.x - b.x);
+    /* A narrow preferred interval puts both edges' labels close enough
+     * in x that "5.5 kA +15.5%" and "7.2 kA +11.8%" would run into each
+     * other — merge into one centred label rather than let them
+     * collide or silently reorder which one wins. */
+    if (positioned.length === 2) {
+      const [a, b] = positioned;
+      const gapNeeded = measureLabel(a.text, 11) / 2 + measureLabel(b.text, 11) / 2 + 8;
+      if (b.x - a.x < gapNeeded) {
+        const cx = (a.x + b.x) / 2;
+        const combined = `${a.text} · ${b.text}`;
+        out.push(`<text data-role="zone-percent" x="${cx}" y="${y}" font-size="11" font-weight="700" text-anchor="middle" fill="${colorFor(a.line)}">${escapeText(combined)}</text>`);
+        return out;
+      }
+    }
+    for (const p of positioned) {
+      out.push(`<text data-role="zone-percent" data-edge="${p.line.edge}" x="${p.x}" y="${y}" font-size="11" font-weight="700" text-anchor="middle" fill="${colorFor(p.line)}">${escapeText(p.text)}</text>`);
+    }
+    return out;
+  }
+
+  /* Vertical: stack both lines together near the top of the band,
+   * ordered by actual screen position rather than by lower/upper — the
+   * axis can run either direction, and reading top-to-bottom should
+   * always match what's visually on top. */
+  const bandX = verticalAxisX(padL) + 12;
+  const bandW = verticalMarkerX(padL) - bandX - 24;
+  const cx = bandX + bandW / 2;
+  const positioned = lines
+    .map((line) => {
+      const boundary_A = boundaryFor(line);
+      if (boundary_A === undefined || !Number.isFinite(boundary_A)) return null;
+      return { line, boundary_A, y: verticalY(model, axis, boundary_A / 1000, padT, plotH) };
+    })
+    .filter((v): v is { line: NonNullable<Resolved['selectedPercents']>[number]; boundary_A: number; y: number } => v !== null)
+    .sort((a, b) => a.y - b.y);
+  const topY = positioned.length > 0 ? Math.min(...positioned.map((p) => p.y)) : padT;
+  positioned.forEach(({ line, boundary_A }, i) => {
+    const y = topY + 14 + i * 14;
+    out.push(`<text data-role="zone-percent" data-edge="${line.edge}" x="${cx}" y="${y}" font-size="11" font-weight="700" text-anchor="middle" fill="${colorFor(line)}">${escapeText(textFor(line, boundary_A))}</text>`);
+  });
   return out;
 }
 
@@ -560,6 +701,70 @@ function frame(
   return out.join('\n');
 }
 
+/**
+ * `secondary axis` (spec §Secondary axis, horizontal only): a second
+ * calibrated axis on the opposite side of the plot, relabelling the
+ * SAME physical x positions in a different quantity/voltage. Ticks are
+ * generated as "nice" round numbers in the secondary quantity's own
+ * units, then each one is converted back to its shared amp position —
+ * they don't line up with the primary axis's own ticks, by design,
+ * since a nice kA number rarely converts to a nice MVA number.
+ */
+function secondaryAxisFrame(
+  model: Resolved,
+  axis: Resolved['axis'],
+  secondaryAxis: NonNullable<Resolved['secondaryAxis']>,
+  padL: number,
+  padT: number,
+  plotW: number,
+  plotH: number,
+  fs: number,
+  theme: { axis: string; foreground: string },
+  leftGutter: number,
+  rightGutter: number,
+): string {
+  const out: string[] = [];
+  const xL = padL + leftGutter;
+  const xR = padL + plotW - rightGutter;
+  const xRange = xR - xL;
+  const voltage_kV = secondaryAxis.voltage_kV;
+
+  const toSecondaryUnit = (v_kA: number): number =>
+    secondaryAxis.quantity === 'kA' || voltage_kV === undefined ? v_kA : toMVA(v_kA * 1000, voltage_kV);
+  const toAxisKA = (v_secondary: number): number =>
+    secondaryAxis.quantity === 'kA' || voltage_kV === undefined ? v_secondary : mvaToAmps(v_secondary, voltage_kV) / 1000;
+
+  const secA = toSecondaryUnit(axis.minimum);
+  const secB = toSecondaryUnit(axis.maximum);
+  const secTicks = buildTicks(Math.min(secA, secB), Math.max(secA, secB), axis.scale === 'indicative' ? 'linear' : axis.scale);
+
+  /* `bandStart` is the top of the reserved strip in both cases — for
+   * `top` that's the OLD padT (before this axis pushed it down further,
+   * carving out the strip above the plot); for `bottom` it's simply
+   * where the plot ends. Kept well clear of the selected label, which
+   * already lives at padT-12 for `top` (spec's reference figure) and of
+   * the primary axis's own tick-label row for `bottom`. */
+  const isTop = secondaryAxis.position === 'top';
+  const bandStart = isTop ? padT - SECONDARY_AXIS_H : padT + plotH;
+  /* `bottom` must additionally clear the PRIMARY axis's own tick-label
+   * row, which already occupies padT+plotH+22 (frame()'s own layout) —
+   * push well past that rather than reusing the `top` offsets. */
+  const lineY = isTop ? bandStart + 22 : bandStart + 40;
+  const labelY = isTop ? bandStart + 8 : bandStart + 58;
+  const tickDir = isTop ? -1 : 1;
+
+  out.push(`<line data-role="secondary-axis" x1="${xL}" y1="${lineY}" x2="${xR}" y2="${lineY}" stroke="${theme.axis}" stroke-width="1" stroke-dasharray="2,2"/>`);
+  for (const t of secTicks) {
+    const posKA = toAxisKA(t);
+    if (posKA < axis.minimum || posKA > axis.maximum) continue;
+    const x = xL + scalePos(model, axis, posKA, xRange);
+    out.push(`<line x1="${x}" y1="${lineY}" x2="${x}" y2="${lineY + tickDir * 4}" stroke="${theme.axis}" stroke-width="1"/>`);
+    const label = secondaryAxis.quantity === 'kA' ? formatTick(t) : `${formatPlain(t, 1)} MVA`;
+    out.push(`<text x="${x}" y="${labelY}" font-size="${fs - 2}" text-anchor="middle" fill="${theme.foreground}">${escapeText(label)}</text>`);
+  }
+  return out.join('\n');
+}
+
 function gridLines(
   model: Resolved,
   axis: Resolved['axis'],
@@ -639,8 +844,20 @@ function drawConstraint(
 ): string {
   void plotW;
   const out: string[] = [];
-  const family = c.direction === 'below' ? palette.lower : palette.upper;
+  /* `reference` criteria plot but never enter the mandatory/preferred
+   * calculation (spec §Requirement levels) — a neutral colour, distinct
+   * from both criterion families, keeps them from reading as a
+   * compliance-bearing marker. */
+  const isReference = c.requirement === 'reference';
+  const family = isReference ? palette.mandatory : c.direction === 'below' ? palette.lower : palette.upper;
   const bg = THEMES[model.choices.theme]?.background ?? '#ffffff';
+  /* Spec §Normative visual encoding: "Criterion: filled circle." An
+   * open circle in the neutral colour signals "this is something else"
+   * without needing a new shape or a legend entry. */
+  const criterionDot = (cx: number, cy: number): string =>
+    isReference
+      ? `<circle data-role="criterion" data-requirement="reference" cx="${cx}" cy="${cy}" r="5" fill="${bg}" stroke="${family}" stroke-width="2"/>`
+      : `<circle data-role="criterion" cx="${cx}" cy="${cy}" r="6" fill="${family}"/>`;
   const marginText = marginLabel(c);
   const countSuffix = groupNames && groupNames.length > 1 ? ` ×${groupNames.length}` : '';
   const displayName = groupNames && groupNames.length > 1 ? groupNames.join(', ') : c.label;
@@ -673,7 +890,7 @@ function drawConstraint(
     if (critSide !== null) {
       out.push(offRangeTriangleV(markerX, yC, critSide, family));
     } else {
-      out.push(`<circle data-role="criterion" cx="${markerX}" cy="${yC}" r="6" fill="${family}"/>`);
+      out.push(criterionDot(markerX, yC));
     }
 
     if (yM !== null && marginSide === null) {
@@ -700,7 +917,7 @@ function drawConstraint(
      * vertically within its row and extend a short pale leader." */
     const labelX = verticalLabelX(padL);
     const labelY = vLabelY ?? yC;
-    const valueText = formatAmps(c.value_A, c.value_A < 1000 ? 'A' : 'kA') + countSuffix;
+    const valueText = formatCondition(c.value_A) + countSuffix + voltageOverrideSuffix(c.entered);
     const fullLabel = marginText ? `${displayName} · ${valueText} (margin ${marginText})` : `${displayName} · ${valueText}`;
     out.push(`<line data-role="leader" x1="${markerX + 10}" y1="${yC}" x2="${labelX - 6}" y2="${labelY}" stroke="#cdd2d8" stroke-width="0.6"/>`);
     out.push(`<circle data-role="leader-end" cx="${labelX - 6}" cy="${labelY}" r="1.5" fill="#cdd2d8"/>`);
@@ -740,12 +957,12 @@ function drawConstraint(
   if (critSide !== null) {
     out.push(offRangeTriangleH(xC, y, critSide, family));
   } else {
-    out.push(`<circle data-role="criterion" cx="${xC}" cy="${y}" r="6" fill="${family}"/>`);
+    out.push(criterionDot(xC, y));
   }
   /* value text above the criterion — spec §Range: showing the exact
    * value and unit here is what makes an off-range marker "explicit"
    * rather than a bare clipped glyph. */
-  out.push(`<text data-role="criterion-value" x="${xC}" y="${y - 8}" font-size="${fs - 1}" text-anchor="middle" font-weight="600" fill="${family}">${escapeText(formatAmps(c.value_A, c.value_A < 1000 ? 'A' : 'kA') + countSuffix)}</text>`);
+  out.push(`<text data-role="criterion-value" x="${xC}" y="${y - 8}" font-size="${fs - 1}" text-anchor="middle" font-weight="600" fill="${family}">${escapeText(formatCondition(c.value_A) + countSuffix + voltageOverrideSuffix(c.entered))}</text>`);
 
   /* margin value text BELOW the open dot, and the direction arrow
    * OUTSIDE the open dot in the acceptable direction. The arrow points
@@ -787,7 +1004,19 @@ function drawConstraint(
 function marginLabel(c: Constraint): string {
   if (!c.margin) return '';
   if (c.margin.kind === 'percentage') return `${formatPlain(c.margin.value)}%`;
-  return formatAmps(c.margin.value, c.margin.value < 1000 ? 'A' : 'kA');
+  return formatCondition(c.margin.value);
+}
+
+/** A kVA/MVA quantity entered with its own `@ X kV` (spec §Per-quantity
+ * voltage), converted to amps using that voltage — flag it on the
+ * diagram itself, next to the value it produced, rather than leaving it
+ * only inferable from the source text. `A`/`kA` quantities MAY also
+ * carry `@` syntactically, but spec §Per-quantity voltage says it "has
+ * no effect on the resolved value" there, so showing it would imply a
+ * dependency that doesn't exist. */
+function voltageOverrideSuffix(entered: { unit: string; voltageOverride?: { value: number } } | undefined): string {
+  if (!entered?.voltageOverride || (entered.unit !== 'kVA' && entered.unit !== 'MVA')) return '';
+  return ` (@ ${formatPlain(entered.voltageOverride.value)} kV)`;
 }
 
 function drawSelection(
@@ -841,85 +1070,84 @@ function selectedLabelText(model: Resolved): string {
   const t = model.displayToggle;
   const parts: string[] = [];
   if (t.showEntered && d?.entered) parts.push(d.entered.text);
-  parts.push(formatAmps(model.selection.value_A));
+  /* The entered-quantity display (above) already spells out its own `@
+   * X kV` when present, so only add the suffix here when that line
+   * isn't shown — otherwise the same override would appear twice. */
+  const voltageSuffix = t.showEntered && d?.entered ? '' : voltageOverrideSuffix(model.selection.entered);
+  parts.push(formatSetting(model.selection.value_A) + voltageSuffix);
   if (t.showMva && d?.mva) parts.push(d.mva.text);
   if (t.showSecondary && d?.secondary) parts.push(`${d.secondary.text} sec`);
-  return `SELECTED ${parts.join(' · ')}`;
+  /* `word selected "…"` was accepted by the grammar and validated, but
+   * nothing ever read it back — the prefix was always the hardcoded
+   * literal "SELECTED". */
+  const prefix = model.choices.words.selected ?? 'Selected';
+  return `${prefix} ${parts.join(' · ')}`;
 }
 
-/** State word, its colour, and the detail line — shared between the
- * horizontal footer callout and the vertical inline status text. */
-function statusText(model: Resolved, palette: { selected: string; caution: string; conflict: string }): { state: string; stateColor: string; detail: string } {
-  /* `no-selection` isn't one of the spec's five normative statuses —
-   * see the Status type in model.ts. No setpoint means there is nothing
-   * to pass judgement on, so report the compliant window instead of a
-   * pass/fail word — the useful answer for an analysis-only diagram
-   * (`selected "…" none`). */
+/**
+ * State word, its colour, and the detail line — shared between the
+ * horizontal footer callout and the vertical inline status text.
+ *
+ * `state` is null for the two cases the diagram should not pass
+ * judgement on at all: no setpoint exists to judge (`no-selection`),
+ * or the preferred bounds cross while the mandatory ones still don't
+ * (`no-recommended-setting` — correctable by loosening a margin, not
+ * a hard error). Both show the relevant numbers instead of a verdict
+ * word — what one is "recommended" or "wrong" here is a report-writing
+ * decision, not the diagram's to make. `no-compliant-setting` (the
+ * mandatory bounds themselves cross — no setting exists that clears
+ * every hard criterion) keeps a state word: that is a real error, not
+ * a preference gap, and spec §Conflicting mandatory constraints
+ * requires it be shown unambiguously.
+ */
+function statusText(model: Resolved, palette: { selected: string; caution: string; conflict: string }): { state: string | null; stateColor: string; detail: string } {
+  const amps = (v: number) => Number.isFinite(v) ? formatCondition(v) : 'unbounded';
+
   if (model.status === 'no-selection') {
     const p = model.preferredInterval;
     const m = model.mandatoryInterval;
-    const range = (lo: number, hi: number) => {
-      const loTxt = Number.isFinite(lo) ? formatAmps(lo, lo < 1000 ? 'A' : 'kA') : 'unbounded';
-      const hiTxt = Number.isFinite(hi) ? formatAmps(hi, hi < 1000 ? 'A' : 'kA') : 'unbounded';
-      return `${loTxt} – ${hiTxt}`;
-    };
     const hasPreferred = Number.isFinite(p.minimum) || Number.isFinite(p.maximum);
     const detail = hasPreferred
-      ? `preferred range ${range(p.minimum, p.maximum)}`
-      : `compliant range ${range(m.minimum, m.maximum)}`;
-    return { state: 'NO SETTING SELECTED', stateColor: palette.caution, detail };
+      ? `Preferred range ${amps(p.minimum)} – ${amps(p.maximum)}`
+      : `Compliant range ${amps(m.minimum)} – ${amps(m.maximum)}`;
+    return { state: null, stateColor: palette.caution, detail };
   }
+  if (model.status === 'no-recommended-setting') {
+    const p = model.preferredInterval;
+    return { state: null, stateColor: palette.caution, detail: `Preferred ${amps(p.minimum)} and ${amps(p.maximum)}` };
+  }
+
   const state = (() => {
     const words = model.choices.words;
-    const w = (k: WordName, fb: string) => (words[k] ?? fb).toUpperCase();
+    const w = (k: WordName, fb: string) => words[k] ?? fb;
     switch (model.status) {
       case 'recommended': return w('recommended', 'Recommended');
       case 'caution': return w('caution', 'Caution');
       case 'do-not-set': return w('do-not-set', 'Do not set');
-      case 'no-recommended-setting': return w('no-recommended', 'No recommended setting');
       case 'no-compliant-setting': return w('no-compliant', 'No compliant setting');
-      /* 'no-selection' is handled by the early return above — excluded
-       * from this switch's type by that point, so TS already treats
-       * this as exhaustive without a case for it. */
+      /* 'no-selection' and 'no-recommended-setting' are handled by the
+       * early returns above — excluded from this switch's type by that
+       * point, so TS already treats this as exhaustive without them. */
     }
   })();
   const stateColor =
     model.status === 'do-not-set' || model.status === 'no-compliant-setting' ? palette.conflict :
-    model.status === 'caution' || model.status === 'no-recommended-setting' ? palette.caution :
+    model.status === 'caution' ? palette.caution :
     palette.selected;
 
-  /* detail line — spec §Selected-setting percentages mandates the
-   * denominator and direction be stated, e.g. "115% of 5.5 kA lower
-   * boundary · 15% above"; model.selectedPercents already carries that
-   * exact formatting, so use it instead of recomputing a shorter one. */
+  /* detail line — recommended/caution/do-not-set no longer repeat
+   * model.selectedPercents here: those are now annotated directly on
+   * the green zone itself (see zonePercentAnnotations), so restating
+   * them in the footer would just be the same numbers twice. */
   let detail = '';
-  if (model.status === 'recommended' || model.status === 'caution' || model.status === 'do-not-set') {
-    if (model.selectedPercents && model.selectedPercents.length > 0) {
-      detail = model.selectedPercents.map((p) => p.text).join(' · ');
-    }
-  } else if (model.status === 'no-recommended-setting') {
-    /* preferredInterval is already in axis amps — do not rescale again.
-     * Spec §Conflicting preferred constraints: conflict% = (lower -
-     * upper) / upper * 100. */
-    const lo = model.preferredInterval.minimum;
-    const hi = model.preferredInterval.maximum;
-    const w = Math.abs(hi - lo);
-    const pct = Number.isFinite(hi) && hi !== 0 ? ((lo - hi) / hi) * 100 : NaN;
-    detail = `conflict ${formatAmps(w, w < 1000 ? 'A' : 'kA')}`;
-    if (Number.isFinite(pct)) detail += ` · ${formatPercent(pct)}`;
-  } else if (model.status === 'no-compliant-setting') {
-    /* mandatoryInterval is already in axis amps — do not rescale again.
-     * Spec §Conflicting mandatory constraints requires the absolute and
-     * percentage conflict, and the two controlling criteria. */
-    const lo = model.mandatoryInterval.minimum;
-    const hi = model.mandatoryInterval.maximum;
-    const w = Math.abs(hi - lo);
-    const pct = Number.isFinite(hi) && hi !== 0 ? ((lo - hi) / hi) * 100 : NaN;
-    detail = `conflict ${formatAmps(w, w < 1000 ? 'A' : 'kA')}`;
-    if (Number.isFinite(pct)) detail += ` · ${formatPercent(pct)}`;
-    if (model.controlling.lower && model.controlling.upper) {
-      detail += ` between "${model.controlling.lower.label}" and "${model.controlling.upper.label}"`;
-    }
+  if (model.status === 'no-compliant-setting') {
+    /* Named criteria and their values, not a width/percentage "conflict"
+     * figure — the two numbers alone (spec's mandatoryInterval bounds)
+     * are what actually explains a mandatory-side clash. */
+    const m = model.mandatoryInterval;
+    const lower = model.controlling.lower ? `"${model.controlling.lower.label}" ${amps(model.controlling.lower.boundary_A)}` : amps(m.minimum);
+    const upper = model.controlling.upper ? `"${model.controlling.upper.label}" ${amps(model.controlling.upper.boundary_A)}` : amps(m.maximum);
+    detail = `Mandatory ${lower} and ${upper}`;
   }
   if (!detail && model.status === 'do-not-set') {
     detail = 'selected value crosses a mandatory criterion';
@@ -936,6 +1164,13 @@ function statusCallout(model: Resolved, anchorX: number, height: number, fs: num
   const { state, stateColor, detail } = statusText(model, palette);
 
   const cy = height - 36;
+
+  if (state === null) {
+    /* no-recommended-setting / no-selection: no verdict word, just the
+     * range values as plain neutral text (no pill, no bold). */
+    out.push(`<text x="${anchorX}" y="${cy}" font-size="${fs - 1}" fill="${theme.callout}" text-anchor="middle">${escapeText(detail)}</text>`);
+    return out.join('\n');
+  }
 
   if (model.choices.view === 'compact') {
     /* Spec §View: compact gets a ONE-LINE status summary — state and
@@ -963,6 +1198,12 @@ function verticalStatusText(model: Resolved, y: number, padL: number, fs: number
   const { state, stateColor, detail } = statusText(model, palette);
   const x = verticalLabelX(padL);
   const out: string[] = [];
+  if (state === null) {
+    /* no-recommended-setting / no-selection: no verdict word, just the
+     * range values as plain neutral text. */
+    out.push(`<text x="${x}" y="${y + 20}" font-size="${fs - 1}" fill="${theme.callout}" text-anchor="start">${escapeText(detail)}</text>`);
+    return out.join('\n');
+  }
   out.push(`<text x="${x}" y="${y + 20}" font-size="${fs}" font-weight="700" fill="${stateColor}" text-anchor="start">${escapeText(state)}</text>`);
   if (detail) {
     out.push(`<text x="${x}" y="${y + 20 + fs + 3}" font-size="${fs - 1}" fill="${theme.callout}" text-anchor="start">${escapeText(detail)}</text>`);

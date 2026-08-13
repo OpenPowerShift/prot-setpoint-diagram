@@ -1,0 +1,14 @@
+# Sample 17 — Title off
+#
+# `style title off` suppresses the diagram's own heading and reclaims
+# the space it used — useful when the diagram is embedded under a
+# report's own caption and a second, duplicate title would be noise.
+
+diagram "Feeder overcurrent — not shown" {
+  style title off
+
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum fault" must 8 kA margin 10%
+
+  selected "Setting" midpoint step 0.05 kA
+}

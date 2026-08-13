@@ -37,6 +37,7 @@ export type Statement =
   | RangeStatement
   | WordStatement
   | StyleStatement
+  | SecondaryAxisStatement
   | ConstraintStatement
   | SelectionStatement;
 
@@ -112,13 +113,21 @@ export interface WordStatement {
 
 export interface StyleStatement {
   type: 'style';
-  property: 'theme' | 'palette' | 'zones' | 'connections';
+  property: 'theme' | 'palette' | 'zones' | 'connections' | 'title';
   value: string;
   loc: SourceLocation;
 }
 
+export interface SecondaryAxisStatement {
+  type: 'secondary-axis';
+  position: 'top' | 'bottom';
+  quantity: 'kA' | 'MVA';
+  voltageOverride?: { value: number; loc: SourceLocation };
+  loc: SourceLocation;
+}
+
 export type Direction = 'below' | 'above';
-export type Requirement = 'must' | 'should';
+export type Requirement = 'must' | 'should' | 'reference';
 
 export interface ConstraintStatement {
   type: 'constraint';

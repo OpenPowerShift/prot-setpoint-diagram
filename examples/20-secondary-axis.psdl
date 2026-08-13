@@ -1,0 +1,20 @@
+# Sample 20 — Secondary axis
+#
+# `secondary axis` adds a second calibrated axis on the other side of
+# the plot, relabelling the SAME physical positions in a different
+# quantity — here, MVA at the diagram's nominal voltage — rather than
+# plotting anything new. Useful when the audience for a report thinks
+# in MVA but the underlying protection settings are all current-based.
+
+diagram "Feeder setting — MVA cross-reference" {
+  voltage 33 kV
+  show current, mva
+  secondary axis top MVA
+
+  below "Maximum load" must 3.5 kA
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum 2-phase fault" must 8 kA margin 10%
+  above "Minimum 3-phase fault" must 12 kA margin 10%
+
+  selected "Selected setting" midpoint step 0.05 kA
+}

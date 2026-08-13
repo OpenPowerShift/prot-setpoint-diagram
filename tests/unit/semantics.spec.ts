@@ -331,3 +331,51 @@ describe('PSDL semantics — per-quantity voltage override (spec §Per-quantity 
     expect(all.some((d) => d.code === 'PSDL107_UNIT_INCOMPATIBLE')).toBe(true);
   });
 });
+
+describe('spec §Selected-setting percentages: signed headroom, one number per edge', () => {
+  it('recommended: both preferred edges reported, both positive (inside the green zone)', () => {
+    const src = `diagram "T" {
+      below "Emergency load" must 5 kA margin 10%
+      above "Minimum fault" must 8 kA margin 10%
+      selected "S" midpoint step 0.05 kA
+    }`;
+    const { resolved } = process(src);
+    expect(resolved!.status).toBe('recommended');
+    expect(resolved!.selectedPercents).toHaveLength(2);
+    expect(resolved!.selectedPercents![0]!.text).toBe('5.5 kA lower boundary +15.5%');
+    expect(resolved!.selectedPercents![1]!.text).toBe('7.2 kA upper boundary +11.8%');
+    // no ratio+clearance pair — a single signed number, not "115% of ... · 15% above"
+    for (const p of resolved!.selectedPercents!) expect(p.text).not.toContain('% of');
+  });
+
+  it('caution: the crossed edge is negative, the healthy edge stays positive', () => {
+    const src = `diagram "T" {
+      below "Emergency load" must 5 kA margin 10%
+      above "Minimum fault" must 8 kA margin 10%
+      selected "S" 7.4 kA
+    }`;
+    const { resolved } = process(src);
+    expect(resolved!.status).toBe('caution');
+    const [lower, upper] = resolved!.selectedPercents!;
+    expect(lower!.text).toBe('5.5 kA lower boundary +34.5%');
+    expect(upper!.text).toBe('7.2 kA upper boundary -2.8%'); // crossed the upper preferred boundary
+    expect(lower!.level).toBe('warning');
+    expect(upper!.level).toBe('warning');
+  });
+
+  it('do-not-set: reports only the crossed mandatory boundary, not the healthy far side', () => {
+    const src = `diagram "T" {
+      below "Emergency load" must 5 kA margin 10%
+      above "Minimum fault" must 8 kA margin 10%
+      selected "S" 9 kA
+    }`;
+    const { resolved } = process(src);
+    expect(resolved!.status).toBe('do-not-set');
+    expect(resolved!.selectedPercents).toHaveLength(1);
+    // controllingUpper reports the margin-adjusted (preferred) boundary,
+    // 7.2 kA, not the raw 8 kA mandatory criterion — pre-existing
+    // behaviour, unchanged by this redesign.
+    expect(resolved!.selectedPercents![0]!.text).toBe('7.2 kA upper boundary -25%');
+    expect(resolved!.selectedPercents![0]!.level).toBe('error');
+  });
+});

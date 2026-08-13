@@ -1,6 +1,6 @@
 # Sample 16 — Style customization
 #
-# The four `style` properties are independent singletons — each may
+# The five `style` properties are independent singletons — each may
 # appear once, in any combination — not one shared "style" statement.
 # This is the spec's own §Styling example, given a diagram to sit in.
 
@@ -9,6 +9,7 @@ diagram "Custom styling" {
   style palette high-contrast
   style zones full
   style connections rows
+  style title on
 
   below "Emergency load" must 5 kA margin 10%
   above "Minimum fault" must 8 kA margin 10%

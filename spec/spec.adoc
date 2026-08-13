@@ -100,11 +100,12 @@ The example resolves to `10.8 kA`.
 
 === Requirement levels
 
-`must`:: Hard engineering criterion. Crossing the original criterion produces `DO NOT SET` status and an error diagnostic.
-`should`:: Advisory criterion. Crossing the criterion produces `CAUTION` status and a warning diagnostic.
+`must`:: Hard engineering criterion. Crossing the original criterion produces `do-not-set` status and an error diagnostic.
+`should`:: Advisory criterion. Crossing the criterion produces `caution` status and a warning diagnostic.
+`reference`:: Informational only. Plotted like any other criterion but excluded from every mandatory/preferred interval calculation — it never affects status, banding, or the zone shading. Useful for a point the reader should see on the diagram (e.g. a CT rating, a downstream relay's own pickup) without it being a condition on the selected setting. A `reference` criterion MUST NOT carry a `margin` (`PSDL006_MARGIN_NOT_APPLICABLE`) — a margin exists to define a preferred boundary, and a `reference` point has none.
 
-A margin attached to `must` defines the preferred boundary inside the mandatory criterion. Crossing the margin but not the original `must` criterion produces `CAUTION`.
-A margin attached to `should` defines a more conservative preferred boundary; crossing either the margin or the advisory criterion remains `CAUTION`.
+A margin attached to `must` defines the preferred boundary inside the mandatory criterion. Crossing the margin but not the original `must` criterion produces `caution`.
+A margin attached to `should` defines a more conservative preferred boundary; crossing either the margin or the advisory criterion remains `caution`.
 
 === Absolute margins
 
@@ -141,42 +142,46 @@ Unbounded sides use negative or positive infinity internally.
 
 === Status order
 
-`RECOMMENDED`:: Selected value lies inside the preferred interval.
-`CAUTION`:: Selected value lies outside the preferred interval but inside every mandatory original criterion.
-`DO NOT SET`:: Selected value crosses at least one mandatory original criterion.
-`NO RECOMMENDED SETTING`:: Preferred lower exceeds preferred upper, but mandatory lower does not exceed mandatory upper.
-`NO COMPLIANT SETTING`:: Mandatory lower exceeds mandatory upper.
+`recommended`:: Selected value lies inside the preferred interval. Default label "Recommended".
+`caution`:: Selected value lies outside the preferred interval but inside every mandatory original criterion. Default label "Caution".
+`do-not-set`:: Selected value crosses at least one mandatory original criterion. Default label "Do not set".
+`no-recommended-setting`:: Preferred lower exceeds preferred upper, but mandatory lower does not exceed mandatory upper.
+`no-compliant-setting`:: Mandatory lower exceeds mandatory upper. Default label "No compliant setting".
+`no-selection`:: `selected ... none` was used, or no finite value was otherwise chosen, and the preferred interval is non-empty.
 
-Status words are presentation labels and MAY be customised. Their semantics do not change.
+Status labels are presentation text and MAY be customised with `word` statements (see §Custom words). Their semantics do not change. Defaults are plain sentence case; a renderer MUST NOT force status text or other diagram labels to uppercase.
+
+`no-recommended-setting` and `no-selection` are deliberately unlabelled by default: whether a setting is missing or in conflict is a judgement for the report author, not a verdict the diagram should assert. For these two statuses the renderer MUST show the relevant range values (see below) instead of a status word. A `word no-recommended` statement remains valid PSDL but has no effect on the default renderer's display, since no verdict word is shown for that status.
 
 === Conflicting preferred constraints
 
 image::example-preferred-conflict.svg[Preferred constraints conflict,100%]
 
-When the preferred interval is empty but the mandatory interval exists:
+When the preferred interval is empty but the mandatory interval exists (`no-recommended-setting`):
 
-* the renderer MUST show `NO RECOMMENDED SETTING`;
-* the crossed preferred boundaries MUST be visible;
-* the conflict width and percentage MUST be reported;
+* the renderer MUST NOT show a status word;
+* the crossed preferred boundaries MUST be visible as range values;
 * the renderer MUST NOT show a normal automatic selected marker; and
-* an explicit user-selected value MAY be shown with `CAUTION` status.
+* an explicit user-selected value MAY be shown with `caution` status.
 
-The conflict percentage is:
+=== No selection
 
-----
-(preferred_lower - preferred_upper) / preferred_upper * 100
-----
+When `selected ... none` is used and the preferred interval is non-empty (`no-selection`):
+
+* the renderer MUST NOT show a status word;
+* the renderer MUST show the preferred range (or, if the preferred interval is unbounded on a side, the mandatory range) as plain range values; and
+* the renderer MUST NOT show a selected marker.
 
 === Conflicting mandatory constraints
 
 image::example-mandatory-conflict.svg[Mandatory constraints conflict,100%]
 
-When the mandatory interval is empty:
+When the mandatory interval is empty (`no-compliant-setting`):
 
-* the renderer MUST show `NO COMPLIANT SETTING`;
+* the renderer MUST show the `no-compliant-setting` status label;
 * no automatic selected value may be generated;
 * the two controlling mandatory criteria MUST be identified; and
-* the absolute and percentage conflict MUST be reported.
+* the absolute conflict MUST be reported.
 
 == Selected value
 
@@ -195,36 +200,37 @@ selected "Selected setting" high step 0.05 kA
 selected "Selected setting" none
 ----
 
-* A literal quantity is taken at face value. The unit may be `A`, `kA`, `kVA` or `MVA`. When the value is in `kVA` or `MVA` the `voltage` statement is REQUIRED (or the quantity must carry its own `@ X kV`, see §Per-quantity voltage) and the renderer converts to amps. A quantity that lands outside every `must` original criterion is reported as `DO NOT SET` and emits a `PSDL109_SELECTED_OUTSIDE_MUST` diagnostic.
+* A literal quantity is taken at face value. The unit may be `A`, `kA`, `kVA` or `MVA`. When the value is in `kVA` or `MVA` the `voltage` statement is REQUIRED (or the quantity must carry its own `@ X kV`, see §Per-quantity voltage) and the renderer converts to amps. A quantity that lands outside every `must` original criterion is reported as `do-not-set` and emits a `PSDL109_SELECTED_OUTSIDE_MUST` diagnostic.
 * `midpoint` selects the midpoint of the finite preferred interval. If the preferred interval is unbounded or empty, midpoint selection fails and emits `PSDL111_MIDPOINT_UNAVAILABLE`.
-* `low` selects the *lowest* compliant setting: it equals `mandatoryInterval.minimum` (the highest `must below` original) rounded UP to the next multiple of `step`. `low` fails with `PSDL110_MANDATORY_INTERVAL_EMPTY` when the mandatory interval is empty. The result sits on the lower edge of the mandatory interval, so it is usually outside the preferred interval — `low` selections are almost always `CAUTION` and the renderer reports the percentage above the preferred lower bound.
+* `low` selects the *lowest* compliant setting: it equals `mandatoryInterval.minimum` (the highest `must below` original) rounded UP to the next multiple of `step`. `low` fails with `PSDL110_MANDATORY_INTERVAL_EMPTY` when the mandatory interval is empty. The result sits on the lower edge of the mandatory interval, so it is usually outside the preferred interval — `low` selections are almost always `caution` and the renderer reports the headroom against the preferred lower boundary.
 * `high` is the dual of `low`: it equals `mandatoryInterval.maximum` (the lowest `must above` original) rounded DOWN to the previous multiple of `step`. Same diagnostics and same status behaviour. Use `high` when the engineer wants the *highest possible* compliant setting — the relay will be the most sensitive, but still clear the must-above criteria.
 * `step` rounds the chosen value to the nearest settable increment, with exact ties rounded away from zero. The unit must be `A` or `kA`. A `step` value that is not positive emits `PSDL112_STEP_INVALID`. For `low` and `high` the rounding direction is fixed (up for `low`, down for `high`); for `midpoint` it follows the nearest-grid rule.
 * `none` requests analysis without selection and is useful for conflict diagrams.
 
 == Selected-setting percentages
 
-For each controlling boundary `B` and selected value `S`, the renderer SHOULD report:
+For a preferred-interval boundary `B` and selected value `S`, the renderer SHOULD report a single signed headroom percentage — not a ratio paired with a separate clearance figure:
 
 ----
-ratio_percent = S / B * 100
-clearance_percent = abs(S - B) / B * 100
+raw_percent = (S - B) / B * 100
+signed_percent = requirement is 'below' ? raw_percent : -raw_percent
 ----
 
-The label MUST state the denominator and direction, for example:
+The sign is normalised so it always means the same thing regardless of which family the boundary belongs to: positive means `S` sits on the acceptable side of `B` with that much headroom; negative means `S` has crossed `B` by that much. The label states the boundary value and its signed percentage together, for example:
 
 ----
-115% of 5.5 kA lower boundary · 15% above
-88% of 7.2 kA upper boundary · 12% below
+5.5 kA +15.5%
+7.2 kA -2.8%
 ----
 
-When a boundary is infringed, the controlling infringement is shown first:
+While every mandatory criterion is satisfied (`recommended` or `caution` status), the renderer SHOULD report both preferred-interval edges, not just the nearer or controlling one — this is what lets a reader see the full picture of headroom on both sides at once, e.g. a `caution` selection typically shows one edge strongly positive and the other mildly negative.
+Once a mandatory criterion is crossed (`do-not-set`), the renderer SHOULD report only the crossed mandatory boundary — the healthy far side is not useful context once a hard limit is already broken.
 
-----
-CAUTION · 105.6% of 7.2 kA upper boundary · 5.6% above
-----
+A renderer MUST annotate the preferred (green) zone itself with these labels rather than place them in a text line elsewhere on the page — the zone annotation is the ONE place they appear, so the status detail line MUST NOT repeat them.
 
-Non-controlling, remote percentages SHOULD be suppressed to avoid noise.
+* Vertical orientation: both labels are drawn inside the band, stacked near its top edge in top-to-bottom screen order.
+* Horizontal orientation: the band spans the full plot height, so labels are drawn in their own row above the plot instead — placed close to the boundary's own x position, clear of the selected label.
+* When two labels would collide (a narrow preferred interval, or a horizontal band too tight for both at their true x positions), a renderer SHOULD merge them into a single combined label rather than let them overlap or arbitrarily drop one, e.g. `5.5 kA +15.5% · 7.2 kA +11.8%`.
 
 == Quantities and expressions
 
@@ -257,6 +263,24 @@ above "33 kV side" must 20 MVA @ 33 kV
 ----
 
 This lets one diagram compare criteria measured at different voltage levels — either side of a transformer, for example — without a single diagram-wide voltage being sufficient. `A` and `kA` quantities MAY also carry `@`, though it currently has no effect on the resolved value: current is already in amps and needs no voltage to convert. If every kVA/MVA quantity in a diagram carries its own `@`, the diagram-level `voltage` statement becomes unnecessary. Where both are present, the inline `@` on a quantity takes precedence over the declared `voltage` for that quantity.
+
+A renderer MUST show the override voltage in brackets next to a value it produced, e.g. `5.5 kA (@ 11 kV)`, for every kVA/MVA quantity — criterion or selected setting — that carried its own `@`. This does not apply to an `A`/`kA` quantity's `@`, since it has no effect on the value shown.
+
+== Secondary axis
+
+[source,psdl]
+----
+secondary axis top kA
+secondary axis top MVA
+secondary axis bottom MVA @ 11 kV
+----
+
+`secondary axis` is an OPTIONAL singleton that adds a second calibrated axis, relabelling the plot's existing physical positions in a different quantity and/or voltage rather than plotting anything new.
+
+* `top` or `bottom` chooses which side of the plot the second axis is drawn on. Horizontal orientation only — a renderer MUST ignore `secondary axis` in vertical orientation.
+* `kA` mirrors the primary axis's own values one-for-one; no voltage is used.
+* `MVA` converts each position using, in order: its own `@ X kV` override if present, otherwise the diagram's declared `voltage`. `MVA` with neither available is an error (`PSDL107_UNIT_INCOMPATIBLE`), the same as any other kVA/MVA quantity without a voltage to convert with.
+* The secondary axis's own tick values are chosen to be "nice" round numbers IN ITS OWN quantity, then each is mapped back to the physical position that value corresponds to on the shared axis — they are not expected to land on the same positions as the primary axis's ticks.
 
 == Conversions
 
@@ -308,6 +332,8 @@ show current, secondary
 `secondary` shows CT secondary current.
 The first listed quantity is primary. Additional quantities are visually secondary.
 
+When the selected setting's MVA was converted using its own per-quantity `@` override (§Per-quantity voltage) rather than the diagram's nominal `voltage`, the two are not directly comparable to another set point converted at the nominal voltage — the same current reads as a different MVA figure at each voltage. A renderer SHOULD show the nominal-voltage MVA in brackets alongside the primary figure, e.g. `80 MVA (240 MVA @ 33 kV nominal)`, so set points from either side of a transformer stay comparable. Omitted when there is no override, or the override equals the nominal voltage.
+
 === View
 
 [source,psdl]
@@ -337,7 +363,7 @@ scale auto
 
 `linear`:: Calibrated linear position.
 `log`:: Calibrated base-10 logarithmic position. Every plotted value MUST be positive.
-`indicative`:: Ordered, non-calibrated spacing with minimum marker separation. The renderer MUST show `INDICATIVE SPACING — NOT TO SCALE`.
+`indicative`:: Ordered, non-calibrated spacing with minimum marker separation. The renderer MUST show a notice equivalent to "Indicative spacing — not to scale".
 `auto`:: Select linear unless `maximum positive value / minimum positive value >= 20`, then select logarithmic. The selected scale MUST be labelled.
 
 Default: `auto`.
@@ -367,16 +393,17 @@ A renderer MUST NOT omit a value without an explicit off-range marker containing
 
 [source,psdl]
 ----
-word do-not-set "PROHIBITED"
-word caution "REVIEW"
-word recommended "PREFERRED"
-word selected "SETTING"
-word no-recommended "NO PREFERRED SETTING"
-word no-compliant "NO VALID SETTING"
+word do-not-set "Prohibited"
+word caution "Review"
+word recommended "Preferred"
+word selected "Setting"
+word no-recommended "No preferred setting"
+word no-compliant "No valid setting"
 ----
 
-Each word statement MAY occur once. The default English words are the keyword converted to uppercase with spaces.
+Each word statement MAY occur once. The default English words are short, plain sentence-case phrases; renderers MUST NOT transform them to uppercase.
 An empty string is invalid.
+`no-recommended` configures text that the default renderer never displays (see §Status order) but MAY be used by renderers that choose to show a status word for `no-recommended-setting`.
 
 == Styling
 
@@ -388,19 +415,22 @@ style theme print
 style palette accessible
 style zones subtle
 style connections pale
+style title on
 ----
 
 `theme` values: `light`, `dark`, `print`, `monochrome`.
 `palette` values: `accessible`, `default`, `high-contrast`, `monochrome`.
 `zones` values: `off`, `subtle`, `full`.
 `connections` values: `off`, `pale`, `rows`.
+`title` values: `on`, `off`. When `off`, the renderer MUST NOT draw the diagram title, and SHOULD reclaim the vertical space it would have used — useful when a report's own caption already names the diagram.
 
-Defaults are `print`, `accessible`, `subtle` for report view, and `pale` connections.
+Defaults are `print`, `accessible`, `subtle` for report view, `pale` connections, and `title on`.
 An implementation MAY add namespaced style extensions. Unknown unnamespaced style properties are errors.
 
 == Normative visual encoding
 
 * Criterion: filled circle.
+* `reference` criterion: open circle in a neutral colour, distinct from both criterion families — it is not a condition and MUST NOT be drawn with a family colour or a margin bar.
 * Margin-adjusted boundary: open circle with coloured outline.
 * Criterion-to-margin distance: thick coloured segment.
 * Acceptable direction: short arrow immediately outside the open circle.
@@ -412,6 +442,13 @@ An implementation MAY add namespaced style extensions. Unknown unnamespaced styl
 * Mandatory conflict: stronger red conflict band and no selected marker.
 
 A renderer MUST retain marker fill, arrow direction, line form and text labels in monochrome output.
+
+=== Numeric precision
+
+A criterion, margin boundary, or mandatory/preferred range value ("a condition") displayed in kA MUST show exactly one decimal place.
+The selected setting displayed in kA MUST show exactly two decimal places — one more than a condition, since it is the number that actually gets dialled into a relay.
+Values below 1000 A displayed in A are shown as entered, with no forced decimal places.
+This applies to displayed values only; internal computation MUST NOT be rounded to these precisions.
 
 == Layout and collision avoidance
 
@@ -472,6 +509,7 @@ Each diagnostic contains a stable code, severity, message and source span.
 `PSDL003_STRING_REQUIRED`:: Missing or invalid quoted label.
 `PSDL004_EXPRESSION_INVALID`:: Malformed arithmetic expression.
 `PSDL005_UNIT_UNKNOWN`:: Unsupported unit.
+`PSDL006_MARGIN_NOT_APPLICABLE`:: A `reference` criterion carries a `margin`.
 
 === Engineering errors
 

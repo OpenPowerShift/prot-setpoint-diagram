@@ -52,7 +52,7 @@ describe('spec §Range: off-range markers', () => {
   it('draws an off-range marker with the exact value rather than clipping it', () => {
     const { svg } = parseAndRender(src);
     expect(svg).toMatch(/data-role="off-range-marker"/);
-    expect(svg).toContain('40 kA');
+    expect(svg).toContain('40.0 kA');
   });
 
   it('keeps the off-range label within the canvas in vertical orientation', () => {
@@ -79,7 +79,7 @@ describe('spec §Layout step 9: combine identical positions', () => {
 
   it('draws one marker with ×N instead of three stacked ones', () => {
     const { svg } = parseAndRender(src);
-    expect(svg).toContain('5 kA ×3');
+    expect(svg).toContain('5.0 kA ×3');
     expect((svg.match(/data-role="criterion"/g) ?? []).length).toBe(2); // combined + Fault
   });
 

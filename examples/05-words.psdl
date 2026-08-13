@@ -8,12 +8,12 @@ diagram "Custom words" {
   scale auto
   range auto
 
-  word do-not-set     "PROHIBITED"
-  word caution        "REVIEW"
-  word recommended    "PREFERRED"
-  word selected       "SETTING"
-  word no-recommended "NO PREFERRED SETTING"
-  word no-compliant   "NO VALID SETTING"
+  word do-not-set     "Prohibited"
+  word caution        "Review"
+  word recommended    "Preferred"
+  word selected       "Setting"
+  word no-recommended "No preferred setting"
+  word no-compliant   "No valid setting"
 
   below "Maximum load" must 3.5 kA
   below "Emergency load" must 5 kA margin 10%

@@ -1,0 +1,15 @@
+# Sample 18 — Reference point
+#
+# `reference` plots a point without it becoming a condition: it never
+# enters the mandatory/preferred interval calculation, so it can't
+# affect status, banding or the selected value. Useful for a number the
+# reader should see (a CT rating, a downstream relay's own pickup)
+# alongside the real criteria, without implying it's one of them.
+
+diagram "Reference point" {
+  below "Emergency load" must 5 kA margin 10%
+  above "Minimum fault" must 8 kA margin 10%
+  above "Downstream relay pickup" reference 9.5 kA
+
+  selected "Setting" midpoint step 0.05 kA
+}

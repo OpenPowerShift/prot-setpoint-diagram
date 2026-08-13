@@ -61,6 +61,13 @@ export function toMVA(amps: number, voltage_kV: number): number {
   return (SQRT3 * voltage_kV * amps) / 1000;
 }
 
+/** Inverse of toMVA — e.g. mapping a secondary axis's own "nice" MVA
+ * tick values back to the amp position they share with the primary
+ * axis. */
+export function mvaToAmps(mva: number, voltage_kV: number): number {
+  return (mva * 1000) / (SQRT3 * voltage_kV);
+}
+
 export function toSecondaryAmps(amps: number, ratio: { primary: number; secondary: number } | undefined): number {
   if (!ratio) return NaN;
   return amps * ratio.secondary / ratio.primary;
@@ -89,9 +96,30 @@ export function formatQuantityForAxis(value: Quantity, settings: Settings): stri
   }
 }
 
-export function formatAmps(amps: number, unit: 'A' | 'kA' = 'kA'): string {
+export function formatAmps(amps: number, unit: 'A' | 'kA' = 'kA', decimals?: number): string {
   if (unit === 'A') return `${formatPlain(amps)} A`;
-  return `${formatPlain(amps / 1000)} kA`;
+  const kA = amps / 1000;
+  return decimals !== undefined ? `${kA.toFixed(decimals)} kA` : `${formatPlain(kA)} kA`;
+}
+
+/**
+ * Criterion, margin-boundary and mandatory/preferred-range values — the
+ * diagram's "conditions" — always to one decimal place in kA, so a
+ * column of them lines up instead of mixing "5 kA" with "6.35 kA".
+ * Sub-1000 A values stay in A with no forced decimals; whole amps are
+ * the natural unit there and rarely carry a fraction.
+ */
+export function formatCondition(amps: number): string {
+  return amps < 1000 ? formatAmps(amps, 'A') : formatAmps(amps, 'kA', 1);
+}
+
+/**
+ * The selected setting value — always to two decimal places in kA, one
+ * more digit than a condition since a setting is what actually gets
+ * dialled into a relay and the extra precision is real.
+ */
+export function formatSetting(amps: number): string {
+  return amps < 1000 ? formatAmps(amps, 'A') : formatAmps(amps, 'kA', 2);
 }
 
 export function formatPlain(n: number, maxDecimals = 3): string {

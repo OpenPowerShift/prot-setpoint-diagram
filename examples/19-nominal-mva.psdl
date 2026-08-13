@@ -1,0 +1,18 @@
+# Sample 19 — Nominal-voltage MVA cross-reference
+#
+# The selected setting is entered in MVA at the 11 kV side of a
+# transformer, but the diagram declares 33 kV as its nominal voltage.
+# The renderer shows the nominal-voltage MVA in brackets alongside the
+# primary figure, so this set point stays comparable to one entered
+# directly in MVA at the nominal voltage.
+
+diagram "Transformer feeder — nominal MVA" {
+  voltage 33 kV
+  ct 300/1 A
+  show current, mva
+
+  below "11 kV side emergency load" must 50 MVA @ 11 kV margin 10%
+  above "33 kV side minimum fault" must 300 MVA @ 33 kV margin 10%
+
+  selected "Setting" 80 MVA @ 11 kV
+}

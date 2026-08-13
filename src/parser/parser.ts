@@ -250,6 +250,10 @@ const TYPE_KEYWORDS = new Set([
   'range',
   'word',
   'style',
+  'secondary',
+  'axis',
+  'top',
+  'bottom',
   'below',
   'above',
   'must',
@@ -267,7 +271,7 @@ const TYPE_KEYWORDS = new Set([
 const DISPLAY_QUANTITIES: DisplayQuantity[] = ['entered', 'current', 'mva', 'secondary'];
 const SCALE_KINDS: ScaleKind[] = ['linear', 'log', 'indicative', 'auto'];
 const VIEW_KINDS: ViewKind[] = ['report', 'compact', 'rail'];
-const STYLE_PROPERTIES = new Set(['theme', 'palette', 'zones', 'connections']);
+const STYLE_PROPERTIES = new Set(['theme', 'palette', 'zones', 'connections', 'title']);
 const STYLE_VALUES = new Set<string>([
   // theme
   'light',
@@ -287,6 +291,9 @@ const STYLE_VALUES = new Set<string>([
   'off',
   'pale',
   'rows',
+  // title
+  'on',
+  'off',
 ]);
 const WORD_NAMES: WordName[] = [
   'do-not-set',
@@ -411,7 +418,7 @@ export function parse(src: string): ParseResult {
     }
 
     if (word === 'orientation' || word === 'voltage' || word === 'ct' || word === 'show' ||
-        word === 'view'    || word === 'scale'   || word === 'range') {
+        word === 'view'    || word === 'scale'   || word === 'range' || word === 'secondary') {
       if (seen.has(word)) {
         pushError('PSDL002_DUPLICATE_SINGLETON', `Duplicate '${word}' statement.`, tok.loc, word.length);
         recoverLine();
@@ -439,6 +446,8 @@ export function parse(src: string): ParseResult {
         return parseWord(tok, seen);
       case 'style':
         return parseStyle(tok, seen);
+      case 'secondary':
+        return parseSecondaryAxis(tok);
       case 'below':
       case 'above':
         return parseConstraint(tok);
@@ -630,13 +639,13 @@ export function parse(src: string): ParseResult {
     if (propTok.kind !== 'identifier' || !STYLE_PROPERTIES.has(propTok.text)) {
       pushError(
         'PSDL001_UNKNOWN_STATEMENT',
-        `Style property must be one of theme, palette, zones, connections, got ${describe(propTok)}.`,
+        `Style property must be one of theme, palette, zones, connections, title, got ${describe(propTok)}.`,
         propTok.loc,
       );
     } else {
       property = propTok.text as StyleStatement['property'];
-      /* Each style property (theme, palette, zones, connections) is its
-       * own singleton — the spec's canonical example sets all four in
+      /* Each style property (theme, palette, zones, connections, title) is
+       * its own singleton — the spec's canonical example sets all four in
        * separate `style` statements, so only a repeated PROPERTY is a
        * duplicate, not a repeated `style` keyword. */
       if (seen.has('style:' + property)) {
@@ -665,6 +674,40 @@ export function parse(src: string): ParseResult {
     return { type: 'style', property, value, loc: start.loc };
   }
 
+  function parseSecondaryAxis(start: Token): Statement | undefined {
+    next();
+    const axisTok = next();
+    if (axisTok.kind !== 'identifier' || axisTok.text !== 'axis') {
+      pushError('PSDL001_UNKNOWN_STATEMENT', `Expected 'axis' after 'secondary', got ${describe(axisTok)}.`, axisTok.loc);
+      recoverLine();
+      return undefined;
+    }
+    const posTok = next();
+    let position: 'top' | 'bottom' = 'top';
+    if (posTok.kind !== 'identifier' || (posTok.text !== 'top' && posTok.text !== 'bottom')) {
+      pushError(
+        'PSDL001_UNKNOWN_STATEMENT',
+        `Secondary axis position must be 'top' or 'bottom', got ${describe(posTok)}.`,
+        posTok.loc,
+      );
+    } else {
+      position = posTok.text;
+    }
+    const qtyTok = next();
+    let quantity: 'kA' | 'MVA' = 'kA';
+    if (qtyTok.kind !== 'unit' || (qtyTok.text !== 'kA' && qtyTok.text !== 'MVA')) {
+      pushError(
+        'PSDL005_UNIT_UNKNOWN',
+        `Secondary axis quantity must be 'kA' or 'MVA', got ${describe(qtyTok)}.`,
+        qtyTok.loc,
+      );
+    } else {
+      quantity = qtyTok.text;
+    }
+    const voltageOverride = parseVoltageOverride();
+    return { type: 'secondary-axis', position, quantity, voltageOverride, loc: start.loc };
+  }
+
   function parseConstraint(start: Token): Statement {
     const direction = next().text as 'below' | 'above';
     const labelTok = expect('string', `criterion label`);
@@ -676,10 +719,10 @@ export function parse(src: string): ParseResult {
     }
     const reqTok = next();
     let requirement: Requirement = 'must';
-    if (reqTok.kind !== 'identifier' || (reqTok.text !== 'must' && reqTok.text !== 'should')) {
+    if (reqTok.kind !== 'identifier' || (reqTok.text !== 'must' && reqTok.text !== 'should' && reqTok.text !== 'reference')) {
       pushError(
         'PSDL001_UNKNOWN_STATEMENT',
-        `Requirement must be 'must' or 'should', got ${describe(reqTok)}.`,
+        `Requirement must be 'must', 'should' or 'reference', got ${describe(reqTok)}.`,
         reqTok.loc,
       );
     } else {
@@ -691,9 +734,22 @@ export function parse(src: string): ParseResult {
     }
     let margin: Margin | undefined;
     if (at('identifier') && peek().text === 'margin') {
+      const marginTok = peek();
       next();
       const m = parseMargin();
-      if (m) margin = m;
+      /* A `reference` point plots but never participates in banding —
+       * a margin (which only exists to define a preferred boundary)
+       * has nothing to attach to, so treat it as an error rather than
+       * silently accepting and ignoring it. */
+      if (requirement === 'reference') {
+        pushError(
+          'PSDL006_MARGIN_NOT_APPLICABLE',
+          `'reference' criteria do not participate in banding and cannot carry a margin.`,
+          marginTok.loc,
+        );
+      } else if (m) {
+        margin = m;
+      }
     }
     return {
       type: 'constraint',

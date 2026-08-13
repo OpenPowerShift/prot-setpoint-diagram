@@ -26,6 +26,10 @@ import PERQTY_VOLTAGE_SRC from '../../examples/13-per-quantity-voltage.psdl?raw'
 import EXPLICIT_RANGE_SRC from '../../examples/14-explicit-range.psdl?raw';
 import COINCIDENT_SRC from '../../examples/15-coincident-markers.psdl?raw';
 import STYLE_SRC from '../../examples/16-style-customization.psdl?raw';
+import TITLE_OFF_SRC from '../../examples/17-title-off.psdl?raw';
+import REFERENCE_SRC from '../../examples/18-reference-point.psdl?raw';
+import NOMINAL_MVA_SRC from '../../examples/19-nominal-mva.psdl?raw';
+import SECONDARY_AXIS_SRC from '../../examples/20-secondary-axis.psdl?raw';
 
 const STARTER_PSDL = FEEDER_SRC;
 
@@ -49,6 +53,10 @@ const EXAMPLES: { id: string; label: string; src: string }[] = [
   { id: '14-explicit-range', label: 'Explicit range', src: EXPLICIT_RANGE_SRC },
   { id: '15-coincident', label: 'Coincident markers (×N)', src: COINCIDENT_SRC },
   { id: '16-style', label: 'Style customization', src: STYLE_SRC },
+  { id: '17-title-off', label: 'Title off', src: TITLE_OFF_SRC },
+  { id: '18-reference-point', label: 'Reference point (non-condition)', src: REFERENCE_SRC },
+  { id: '19-nominal-mva', label: 'Nominal-voltage MVA cross-reference', src: NOMINAL_MVA_SRC },
+  { id: '20-secondary-axis', label: 'Secondary axis (MVA)', src: SECONDARY_AXIS_SRC },
 ];
 
 interface Mark {
