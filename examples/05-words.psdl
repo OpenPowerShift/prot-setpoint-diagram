@@ -1,7 +1,10 @@
 # Sample 05 — Custom words
 #
 # Each status word is replaced with project-specific terminology.
-# The semantics don't change; the labels do.
+# The semantics don't change; the labels do. `recommended` and
+# `no-recommended` are listed for completeness but have no visible
+# effect on the default renderer — a "Recommended" status announces
+# nothing the green zone hasn't already shown, so it isn't drawn.
 
 diagram "Custom words" {
   orientation horizontal

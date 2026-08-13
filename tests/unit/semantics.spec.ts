@@ -333,7 +333,7 @@ describe('PSDL semantics — per-quantity voltage override (spec §Per-quantity 
 });
 
 describe('spec §Selected-setting percentages: signed headroom, one number per edge', () => {
-  it('recommended: both preferred edges reported, both positive (inside the green zone)', () => {
+  it('recommended: both preferred edges reported; sign follows the number line, not safety', () => {
     const src = `diagram "T" {
       below "Emergency load" must 5 kA margin 10%
       above "Minimum fault" must 8 kA margin 10%
@@ -342,13 +342,17 @@ describe('spec §Selected-setting percentages: signed headroom, one number per e
     const { resolved } = process(src);
     expect(resolved!.status).toBe('recommended');
     expect(resolved!.selectedPercents).toHaveLength(2);
-    expect(resolved!.selectedPercents![0]!.text).toBe('5.5 kA lower boundary +15.5%');
-    expect(resolved!.selectedPercents![1]!.text).toBe('7.2 kA upper boundary +11.8%');
+    // S=6.35 is above the 5.5 kA lower boundary (+) and below the 7.2 kA
+    // upper boundary (-) — raw (S-B)/B, no family-based sign flip.
+    expect(resolved!.selectedPercents![0]!.text).toBe('5.5 kA +15.5%');
+    expect(resolved!.selectedPercents![1]!.text).toBe('7.2 kA -11.8%');
+    expect(resolved!.selectedPercents![0]!.crossed).toBe(false);
+    expect(resolved!.selectedPercents![1]!.crossed).toBe(false);
     // no ratio+clearance pair — a single signed number, not "115% of ... · 15% above"
     for (const p of resolved!.selectedPercents!) expect(p.text).not.toContain('% of');
   });
 
-  it('caution: the crossed edge is negative, the healthy edge stays positive', () => {
+  it('caution: `crossed` flags the violated edge independently of the sign shown', () => {
     const src = `diagram "T" {
       below "Emergency load" must 5 kA margin 10%
       above "Minimum fault" must 8 kA margin 10%
@@ -357,10 +361,34 @@ describe('spec §Selected-setting percentages: signed headroom, one number per e
     const { resolved } = process(src);
     expect(resolved!.status).toBe('caution');
     const [lower, upper] = resolved!.selectedPercents!;
-    expect(lower!.text).toBe('5.5 kA lower boundary +34.5%');
-    expect(upper!.text).toBe('7.2 kA upper boundary -2.8%'); // crossed the upper preferred boundary
+    expect(lower!.text).toBe('5.5 kA +34.5%');
+    expect(lower!.crossed).toBe(false);
+    // S=7.4 has numerically exceeded the 7.2 kA upper boundary, so the
+    // raw sign is POSITIVE here even though this edge is the violated
+    // one — `crossed` (not the sign) is what a renderer should colour by.
+    expect(upper!.text).toBe('7.2 kA +2.8%');
+    expect(upper!.crossed).toBe(true);
     expect(lower!.level).toBe('warning');
     expect(upper!.level).toBe('warning');
+  });
+
+  it('reports the actual preferred boundary for a plain `should` with no must+margin counterpart', () => {
+    // The preferred lower bound here comes from a bare `should 5 kA`
+    // criterion, distinct from the `must 4 kA` mandatory floor — the
+    // percentage MUST be measured against 5 kA (what the green zone
+    // actually shows), not silently fall back to the 4 kA must value.
+    const src = `diagram "T" {
+      below "Absolute minimum" must 4 kA
+      below "Preferred minimum" should 5 kA
+      above "Fault clearance" must 9 kA margin 10%
+      selected "S" 4.5 kA
+    }`;
+    const { resolved } = process(src);
+    expect(resolved!.preferredInterval.minimum).toBeCloseTo(5000, 6);
+    expect(resolved!.status).toBe('caution');
+    const lower = resolved!.selectedPercents!.find((p) => p.edge === 'lower');
+    expect(lower!.text).toBe('5.0 kA -10%');
+    expect(lower!.crossed).toBe(true);
   });
 
   it('do-not-set: reports only the crossed mandatory boundary, not the healthy far side', () => {
@@ -375,7 +403,8 @@ describe('spec §Selected-setting percentages: signed headroom, one number per e
     // controllingUpper reports the margin-adjusted (preferred) boundary,
     // 7.2 kA, not the raw 8 kA mandatory criterion — pre-existing
     // behaviour, unchanged by this redesign.
-    expect(resolved!.selectedPercents![0]!.text).toBe('7.2 kA upper boundary -25%');
+    expect(resolved!.selectedPercents![0]!.text).toBe('7.2 kA +25%');
+    expect(resolved!.selectedPercents![0]!.crossed).toBe(true);
     expect(resolved!.selectedPercents![0]!.level).toBe('error');
   });
 });

@@ -142,7 +142,7 @@ Unbounded sides use negative or positive infinity internally.
 
 === Status order
 
-`recommended`:: Selected value lies inside the preferred interval. Default label "Recommended".
+`recommended`:: Selected value lies inside the preferred interval. Unlabelled by default (see below).
 `caution`:: Selected value lies outside the preferred interval but inside every mandatory original criterion. Default label "Caution".
 `do-not-set`:: Selected value crosses at least one mandatory original criterion. Default label "Do not set".
 `no-recommended-setting`:: Preferred lower exceeds preferred upper, but mandatory lower does not exceed mandatory upper.
@@ -151,7 +151,12 @@ Unbounded sides use negative or positive infinity internally.
 
 Status labels are presentation text and MAY be customised with `word` statements (see §Custom words). Their semantics do not change. Defaults are plain sentence case; a renderer MUST NOT force status text or other diagram labels to uppercase.
 
-`no-recommended-setting` and `no-selection` are deliberately unlabelled by default: whether a setting is missing or in conflict is a judgement for the report author, not a verdict the diagram should assert. For these two statuses the renderer MUST show the relevant range values (see below) instead of a status word. A `word no-recommended` statement remains valid PSDL but has no effect on the default renderer's display, since no verdict word is shown for that status.
+`recommended`, `no-recommended-setting` and `no-selection` are deliberately unlabelled by default:
+
+* For `no-recommended-setting` and `no-selection`, whether a setting is missing or in conflict is a judgement for the report author, not a verdict the diagram should assert — the renderer MUST show the relevant range values (see below) instead of a status word.
+* For `recommended`, a status word would only be announcing back what the marker sitting in the green zone (and its zone percent annotations, see §Selected-setting percentages) already shows — the renderer SHOULD NOT show a status word or any other footer text for this status.
+
+A `word recommended` or `word no-recommended` statement remains valid PSDL but has no effect on the default renderer's display, since no verdict word is shown for either status.
 
 === Conflicting preferred constraints
 
@@ -212,25 +217,25 @@ selected "Selected setting" none
 For a preferred-interval boundary `B` and selected value `S`, the renderer SHOULD report a single signed headroom percentage — not a ratio paired with a separate clearance figure:
 
 ----
-raw_percent = (S - B) / B * 100
-signed_percent = requirement is 'below' ? raw_percent : -raw_percent
+signed_percent = (S - B) / B * 100
 ----
 
-The sign is normalised so it always means the same thing regardless of which family the boundary belongs to: positive means `S` sits on the acceptable side of `B` with that much headroom; negative means `S` has crossed `B` by that much. The label states the boundary value and its signed percentage together, for example:
+The sign follows the number line, not "is this safe": positive means `S` is numerically above `B`, negative means numerically below. A lower boundary therefore normally reads positive (`S` sits above the floor) and an upper boundary normally reads negative (`S` sits below the ceiling) — the label states the boundary value and its signed percentage together, for example:
 
 ----
 5.5 kA +15.5%
-7.2 kA -2.8%
+7.2 kA -11.8%
 ----
 
-While every mandatory criterion is satisfied (`recommended` or `caution` status), the renderer SHOULD report both preferred-interval edges, not just the nearer or controlling one — this is what lets a reader see the full picture of headroom on both sides at once, e.g. a `caution` selection typically shows one edge strongly positive and the other mildly negative.
+Separately, each boundary has a `crossed` state — whether `S` is actually on the wrong side of it for its family (`S < B` for a `below` criterion, `S > B` for an `above` criterion). This is independent of the sign above: a `caution` selection that has exceeded an upper boundary shows a *positive* percentage (`S` is numerically greater than `B`) while still being crossed. A renderer MUST colour each label by `crossed` (green when not crossed, caution/conflict colour when crossed), not by the sign of the percentage.
+
+While every mandatory criterion is satisfied (`recommended` or `caution` status), the renderer SHOULD report both preferred-interval edges, not just the nearer or controlling one — this is what lets a reader see the full picture of headroom on both sides at once.
 Once a mandatory criterion is crossed (`do-not-set`), the renderer SHOULD report only the crossed mandatory boundary — the healthy far side is not useful context once a hard limit is already broken.
 
-A renderer MUST annotate the preferred (green) zone itself with these labels rather than place them in a text line elsewhere on the page — the zone annotation is the ONE place they appear, so the status detail line MUST NOT repeat them.
+A renderer MUST annotate the preferred (green) zone itself with these labels, adjacent to the zone, rather than place them in a text line elsewhere on the page — the zone annotation is the ONE place they appear, so the status detail line MUST NOT repeat them. The selected-value label MUST be positioned above this annotation (and above a `secondary axis top`, if present), since it is the more important of the two and reads first.
 
-* Vertical orientation: both labels are drawn inside the band, stacked near its top edge in top-to-bottom screen order.
-* Horizontal orientation: the band spans the full plot height, so labels are drawn in their own row above the plot instead — placed close to the boundary's own x position, clear of the selected label.
-* When two labels would collide (a narrow preferred interval, or a horizontal band too tight for both at their true x positions), a renderer SHOULD merge them into a single combined label rather than let them overlap or arbitrarily drop one, e.g. `5.5 kA +15.5% · 7.2 kA +11.8%`.
+* Vertical orientation: each label is positioned at its OWN boundary's actual axis position, not at a shared "top/bottom of band" position — a renderer MUST NOT anchor both labels to whichever end of the band has more room, since on a tall band that can place a label far from the value it names (e.g. the lower boundary's label drifting up next to the upper boundary). Each label independently prefers just inside the band next to its own marker; if that would land on the selected line or its label, it MUST fall back to just outside the band on its own side instead, still adjacent to the band and still tied to its own position. If a label's own position leaves no clear spot on either side (a very short band with the selection on top of it), the renderer MAY drop that one label; if both labels end up within a row of each other, merge them into one line rather than overlap.
+* Horizontal orientation: the band spans the full plot height, so labels are drawn in their own row immediately adjacent to the plot instead (with the selected label, and any `secondary axis top`, stacked above that row). When two labels would collide at their true x positions (a narrow preferred interval), a renderer SHOULD merge them into a single combined label rather than let them overlap or arbitrarily drop one, e.g. `5.5 kA +15.5% · 7.2 kA -11.8%`.
 
 == Quantities and expressions
 
@@ -403,7 +408,7 @@ word no-compliant "No valid setting"
 
 Each word statement MAY occur once. The default English words are short, plain sentence-case phrases; renderers MUST NOT transform them to uppercase.
 An empty string is invalid.
-`no-recommended` configures text that the default renderer never displays (see §Status order) but MAY be used by renderers that choose to show a status word for `no-recommended-setting`.
+`recommended` and `no-recommended` configure text that the default renderer never displays (see §Status order) but MAY be used by renderers that choose to show a status word for those statuses.
 
 == Styling
 

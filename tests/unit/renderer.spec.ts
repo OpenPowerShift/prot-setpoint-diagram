@@ -172,22 +172,21 @@ describe('spec §Selected-setting percentages: zone annotations', () => {
   it('merges both preferred edges into one label when the zone is too narrow for two', () => {
     // feeder-setting's preferred interval (5.5-7.2 kA) is narrow enough
     // relative to the axis that separate "5.5 kA +15.5%" / "7.2 kA
-    // +11.8%" labels would collide — merged into one is the fallback.
+    // -11.8%" labels would collide — merged into one is the fallback.
     const { svg } = parseAndRender(load('feeder-setting'));
     const annotations = [...svg.matchAll(/<text data-role="zone-percent"[^>]*>([^<]*)<\/text>/g)];
     expect(annotations).toHaveLength(1);
-    expect(annotations[0]![1]).toBe('5.5 kA +15.5% · 7.2 kA +11.8%');
+    expect(annotations[0]![1]).toBe('5.5 kA +15.5% · 7.2 kA -11.8%');
   });
 
-  it('does not repeat the zone-annotated numbers in the footer status detail', () => {
+  it('does not show a "Recommended" word or repeat the zone-annotated numbers in the footer', () => {
     const { svg } = parseAndRender(load('feeder-setting'));
-    // "Recommended" alone, no boundary/percent text alongside it
-    expect(svg).toMatch(/<text[^>]*>Recommended<\/text>/);
+    expect(svg).not.toContain('Recommended');
     expect(svg).not.toContain('lower boundary');
     expect(svg).not.toContain('upper boundary');
   });
 
-  it('caution: annotates both edges separately when there is room, one positive and one negative', () => {
+  it('caution: annotates both edges separately when there is room, sign follows the number line', () => {
     const src = `diagram "T" {
       below "Emergency load" must 5 kA margin 10%
       above "Minimum fault" must 8 kA margin 10%
@@ -198,10 +197,27 @@ describe('spec §Selected-setting percentages: zone annotations', () => {
     expect(annotations).toHaveLength(2);
     const byEdge = Object.fromEntries(annotations.map((m) => [m[1], m[2]]));
     expect(byEdge.lower).toBe('5.5 kA +34.5%');
-    expect(byEdge.upper).toBe('7.2 kA -2.8%');
+    // S=7.4 numerically exceeds the 7.2 kA upper boundary, so the raw
+    // sign is positive even though this is the violated edge — colour
+    // (not sign) is what flags it, checked separately below.
+    expect(byEdge.upper).toBe('7.2 kA +2.8%');
   });
 
-  it('do-not-set: a single red annotation at the crossed boundary, and a generic footer message', () => {
+  it('caution: the violated edge is coloured caution/red even though its sign is positive', () => {
+    const src = `diagram "T" {
+      below "Emergency load" must 5 kA margin 10%
+      above "Minimum fault" must 8 kA margin 10%
+      selected "S" 7.4 kA
+    }`;
+    const { svg } = parseAndRender(src);
+    const upperText = svg.match(/<text data-role="zone-percent" data-edge="upper"[^>]*fill="(#[0-9a-f]{6})"[^>]*>/);
+    const lowerText = svg.match(/<text data-role="zone-percent" data-edge="lower"[^>]*fill="(#[0-9a-f]{6})"[^>]*>/);
+    expect(upperText).not.toBeNull();
+    expect(lowerText).not.toBeNull();
+    expect(upperText![1]).not.toBe(lowerText![1]);
+  });
+
+  it('do-not-set: a single annotation at the crossed boundary, and a generic footer message', () => {
     const src = `diagram "T" {
       below "Emergency load" must 5 kA margin 10%
       above "Minimum fault" must 8 kA margin 10%
@@ -211,8 +227,39 @@ describe('spec §Selected-setting percentages: zone annotations', () => {
     const annotations = [...svg.matchAll(/<text data-role="zone-percent" data-edge="(\w+)"[^>]*>([^<]*)<\/text>/g)];
     expect(annotations).toHaveLength(1);
     expect(annotations[0]![1]).toBe('upper');
-    expect(annotations[0]![2]).toBe('7.2 kA -25%');
+    expect(annotations[0]![2]).toBe('7.2 kA +25%');
     expect(svg).toContain('selected value crosses a mandatory criterion');
+  });
+
+  it('vertical: each label sits near its OWN boundary, not a shared band-end position', () => {
+    // Regression: a previous implementation stacked both labels near
+    // whichever end of the band had clearance from the selected line,
+    // which could land the LOWER boundary's label up near the UPPER
+    // boundary's true position on a tall band — visually disconnected
+    // from the value it names. Each label must track its own y.
+    const src = `diagram "T" {
+      orientation vertical
+      below "Emergency load" must 3 kA margin 20%
+      above "Minimum fault" must 12 kA margin 20%
+      selected "S" 6 kA
+    }`;
+    const { svg } = parseAndRender(src);
+    const upper = svg.match(/<text data-role="zone-percent" data-edge="upper"[^>]*y="([\d.]+)"[^>]*>([^<]*)</);
+    const lower = svg.match(/<text data-role="zone-percent" data-edge="lower"[^>]*y="([\d.]+)"[^>]*>([^<]*)</);
+    // The open "margin" circle IS the preferred boundary each label
+    // describes (the filled "criterion" dot is the original, unmargined
+    // value) — compare against that, not the criterion dot.
+    const upperMarkerY = svg.match(/<circle data-role="margin" cx="186" cy="([\d.]+)"[^>]*stroke="#1d4ed8"/);
+    const lowerMarkerY = svg.match(/<circle data-role="margin" cx="186" cy="([\d.]+)"[^>]*stroke="#0f766e"/);
+    expect(upper).not.toBeNull();
+    expect(lower).not.toBeNull();
+    expect(upper![2]).toBe('9.6 kA -37.5%');
+    expect(lower![2]).toBe('3.6 kA +66.7%');
+    // "upper"'s label must land near the upper boundary's own marker
+    // row, not near the lower one's (and vice versa) — within a couple
+    // of row-heights, not the ~90px the old shared-end bug produced.
+    expect(Math.abs(Number(upper![1]) - Number(upperMarkerY![1]))).toBeLessThan(20);
+    expect(Math.abs(Number(lower![1]) - Number(lowerMarkerY![1]))).toBeLessThan(20);
   });
 });
 

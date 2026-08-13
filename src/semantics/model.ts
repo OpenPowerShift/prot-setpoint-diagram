@@ -41,11 +41,19 @@ export interface PercentLine {
    * renderer place a compact annotation at that edge on the diagram
    * itself, rather than only in the text line. */
   edge: 'lower' | 'upper';
-  /** Signed headroom, unrounded: positive on the acceptable side,
-   * negative once crossed. Same number `text` renders, exposed
-   * separately so a renderer can format/colour it without parsing
-   * `text`. */
+  /** Raw signed distance from the boundary, unrounded: (S - boundary) /
+   * boundary, NOT flipped by family. Positive means S is numerically
+   * above the boundary, negative means numerically below — for a lower
+   * boundary that reads as "headroom above the floor" (usually
+   * positive), for an upper boundary as "room below the ceiling"
+   * (usually negative). Same number `text` renders, exposed separately
+   * so a renderer can format it without parsing `text`. */
   percent: number;
+  /** Whether S is actually on the wrong side of THIS boundary for its
+   * family — independent of `percent`'s sign, since that's no longer
+   * safety-normalised. Renderers should colour by this, not by
+   * `percent >= 0`. */
+  crossed: boolean;
 }
 
 export interface Constraint {
@@ -646,13 +654,25 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
     });
   }
 
-  /* controlling preferred boundaries */
+  /* controlling MANDATORY boundaries — must-only, for the no-compliant-
+   * setting detail text (which is specifically about the two must
+   * criteria that conflict). */
   const lower = controllingLower(resolved);
   const upper = controllingUpper(resolved);
 
+  /* controlling PREFERRED boundaries — must (with margin) AND should,
+   * whichever actually produced model.preferredInterval's bound (see
+   * computePreferred). Deliberately separate from lower/upper above:
+   * a should criterion with no must+margin counterpart, like a plain
+   * `should 5 kA` advisory limit, previously fell through this and
+   * silently reported the wrong (must-only) boundary in the percentage
+   * annotations. */
+  const preferredLower = controllingPreferredLower(resolved);
+  const preferredUpper = controllingPreferredUpper(resolved);
+
   /* selected-value percentages */
   const percents: Resolved['selectedPercents'] =
-    selection && Number.isFinite(selection.value_A) ? buildPercents(selection, lower, upper, mandatory, status) : undefined;
+    selection && Number.isFinite(selection.value_A) ? buildPercents(selection, preferredLower, preferredUpper, mandatory, status) : undefined;
 
   /* display (current / mva / secondary) */
   let display: Display | null = null;
@@ -758,6 +778,33 @@ function controllingUpper(cs: Constraint[]): ControllingBoundary | null {
   const top = aboveMust.reduce((a, b) => (a.value_A <= b.value_A ? a : b));
   const boundary_A = top.boundary_A ?? top.value_A;
   return { label: top.label, direction: 'above', boundary_A };
+}
+
+/* Mirrors computePreferred's own candidate set exactly — must (with
+ * margin) AND should — so the result is guaranteed to be the specific
+ * constraint that produced preferredInterval.minimum, not just the
+ * tightest MUST boundary. A plain `should 5 kA` advisory limit with no
+ * must+margin counterpart has no candidate at all in
+ * controllingLower/controllingUpper (must-only), which silently
+ * reported the wrong boundary for it. */
+function controllingPreferredLower(cs: Constraint[]): ControllingBoundary | null {
+  let best: { label: string; value: number } | null = null;
+  for (const c of cs) {
+    if (c.direction !== 'below') continue;
+    if (c.requirement === 'should' && (best === null || c.value_A > best.value)) best = { label: c.label, value: c.value_A };
+    if (c.boundary_A !== null && (best === null || c.boundary_A > best.value)) best = { label: c.label, value: c.boundary_A };
+  }
+  return best ? { label: best.label, direction: 'below', boundary_A: best.value } : null;
+}
+
+function controllingPreferredUpper(cs: Constraint[]): ControllingBoundary | null {
+  let best: { label: string; value: number } | null = null;
+  for (const c of cs) {
+    if (c.direction !== 'above') continue;
+    if (c.requirement === 'should' && (best === null || c.value_A < best.value)) best = { label: c.label, value: c.value_A };
+    if (c.boundary_A !== null && (best === null || c.boundary_A < best.value)) best = { label: c.label, value: c.boundary_A };
+  }
+  return best ? { label: best.label, direction: 'above', boundary_A: best.value } : null;
 }
 
 function resolveSelection(
@@ -1197,25 +1244,26 @@ function buildPercents(
 
 function percentLine(s: number, boundary: ControllingBoundary, level: 'info' | 'warning' | 'error'): PercentLine {
   /* Spec §Selected-setting percentages: a single signed percentage of
-   * the boundary itself — "5.5 kA lower boundary +15.5%" — rather than
-   * a ratio ("115% of...") paired with a redundant clearance figure.
-   * Positive means S sits on the acceptable side with that much
-   * headroom; negative means S has crossed the boundary by that much. */
+   * the boundary itself — "5.5 kA +15.5%" — rather than a ratio ("115%
+   * of...") paired with a redundant clearance figure. The sign is the
+   * plain (S - boundary) / boundary, NOT flipped by family: a lower
+   * boundary reads positive when S sits above it (the normal case), an
+   * upper boundary reads NEGATIVE when S sits below it (the normal
+   * case) — the sign follows the number line, not "is this safe". */
   const boundStr = formatCondition(boundary.boundary_A);
   const boundaryWord = boundary.direction === 'below' ? 'lower' : 'upper';
-  /* Raw (S - boundary)/boundary is signed toward "S is numerically
-   * bigger", not toward "S is safe" — for a `below` criterion (S MUST
-   * be >= boundary) those agree, but for an `above` criterion (S MUST
-   * be <= boundary) they're opposite, so flip it there. Without this an
-   * upper-boundary crossing would read as a positive percentage. */
-  const raw = (s - boundary.boundary_A) / boundary.boundary_A * 100;
-  const signedPct = boundary.direction === 'below' ? raw : -raw;
+  const signedPct = (s - boundary.boundary_A) / boundary.boundary_A * 100;
   const sign = signedPct >= 0 ? '+' : '';
+  /* Crossed means "on the wrong side for this family" — used for
+   * colour, kept independent of signedPct's sign since that's no
+   * longer safety-normalised. */
+  const crossed = boundary.direction === 'below' ? s < boundary.boundary_A : s > boundary.boundary_A;
   return {
-    text: `${boundStr} ${boundaryWord} boundary ${sign}${formatPercent(signedPct)}`,
+    text: `${boundStr} ${sign}${formatPercent(signedPct)}`,
     level,
     edge: boundaryWord,
     percent: signedPct,
+    crossed,
   };
 }
 

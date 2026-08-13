@@ -56,16 +56,22 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
    * labels row on whichever side it's declared, on top of the usual
    * title/axis/status padding. */
   const secondaryAxis = o === 'horizontal' ? model.secondaryAxis : undefined;
+  const hasSecondaryTop = secondaryAxis?.position === 'top';
+  const hasSecondaryBottom = secondaryAxis?.position === 'bottom';
   /* Horizontal only: the zone percent annotations get their own row
-   * above the selected label — criterion rows already fill the plot
-   * itself top to bottom, so there's nowhere inside it to put them. */
+   * immediately adjacent to the plot — criterion rows already fill the
+   * plot itself top to bottom, so there's nowhere inside it to put
+   * them. `topStackHeight` is the combined height of everything now
+   * stacked BELOW the selected label and ABOVE the plot — the label
+   * itself stays at its original offset from padT's ORIGINAL (pre-stack)
+   * value, so adding rows here pushes the label up rather than
+   * shrinking the gap it already had. */
   const hasZonePercent = o === 'horizontal' && !!model.selectedPercents && model.selectedPercents.length > 0;
+  const topStackHeight = (hasZonePercent ? ZONE_PERCENT_ROW : 0) + (hasSecondaryTop ? SECONDARY_TOP_ROW : 0);
   const padL = PAD_L;
   const padR = PAD_R;
-  const padT = (model.choices.title === 'off' ? 28 : 60)
-    + (secondaryAxis?.position === 'top' ? SECONDARY_AXIS_H : 0)
-    + (hasZonePercent ? ZONE_PERCENT_EXTRA_H : 0);  /* title + selected label space */
-  const padB = 80 + (secondaryAxis?.position === 'bottom' ? SECONDARY_AXIS_H : 0);  /* axis + status callout */
+  const padT = (model.choices.title === 'off' ? 28 : 60) + topStackHeight;  /* title + selected label space */
+  const padB = 80 + (hasSecondaryBottom ? SECONDARY_AXIS_H : 0);  /* axis + status callout */
 
   const plotW = declareWidth - padL - padR;
   const plotH = declareHeight - padB - padT;
@@ -130,7 +136,7 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
   parts.push(gridLines(model, axis, padL, padT, plotW, plotH, o, ticks, theme, leftGutter, rightGutter));
 
   if (secondaryAxis) {
-    parts.push(secondaryAxisFrame(model, axis, secondaryAxis, padL, padT, plotW, plotH, fs, theme, leftGutter, rightGutter));
+    parts.push(secondaryAxisFrame(model, axis, secondaryAxis, padL, padT, plotW, plotH, fs, theme, leftGutter, rightGutter, hasZonePercent));
   }
   parts.push(`</g>`);
 
@@ -190,7 +196,7 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
    * selected line, not at a fixed canvas position) rather than centred
    * on the whole canvas. */
   if (hasSelection) {
-    parts.push(drawSelection(model, axis, padL, padT, plotW, plotH, o, fs, palette, leftGutter, rightGutter));
+    parts.push(drawSelection(model, axis, padL, padT, plotW, plotH, o, fs, palette, leftGutter, rightGutter, topStackHeight));
   }
 
   if (o === 'vertical' && selY !== null) {
@@ -231,16 +237,20 @@ const MIN_AXIS_WIDTH = 400;
  * soon as a family had three or more criteria.
  */
 const ROW_PITCH = 42;
-/** Extra vertical space a `secondary axis` reserves on whichever side
- * (top or bottom) it's drawn on — line + ticks + one row of labels,
- * with enough clearance to also not collide with the selected-value
- * label that already lives in the same strip above the plot. */
+/** Extra vertical space a `secondary axis bottom` reserves below the
+ * plot — line + ticks + one row of labels, clear of the primary axis's
+ * own tick-label row. (`top` uses SECONDARY_TOP_ROW instead — see the
+ * horizontal top-of-plot stack below.) */
 const SECONDARY_AXIS_H = 76;
-/** Extra vertical space reserved above a horizontal plot for the zone
- * percent annotations — they sit in their own row above the selected
- * label, not inside the plot (which criterion rows already fill top to
- * bottom, leaving nowhere clear to put a third line of text). */
-const ZONE_PERCENT_EXTRA_H = 20;
+/** Horizontal, `secondary axis top` only: height of its own line/ticks/
+ * label block, stacked adjacent to the plot (or to the zone percent
+ * row, if that's also present) rather than floating far above it. */
+const SECONDARY_TOP_ROW = 34;
+/** Horizontal only: height of the zone percent annotations' row,
+ * immediately adjacent to the plot/green band — criterion rows already
+ * fill the plot itself top to bottom, so there's nowhere inside it to
+ * put a third line of text the way vertical's slim band allows. */
+const ZONE_PERCENT_ROW = 18;
 
 /**
  * Spec §Layout step 9: "Combine identical positions into one marker
@@ -408,17 +418,21 @@ function defaultCanvasSize(model: Resolved, o: 'horizontal' | 'vertical', fs: nu
    * spacing, and each row needs headroom for its value text (above) and
    * margin text (below). Solve so the taller family fits its half. */
   const halfNeed = (maxFamily - 1) * ROW_PITCH + 40;
-  const hasSecondaryAxis = o === 'horizontal' && !!model.secondaryAxis;
+  const hasSecondaryTop = o === 'horizontal' && model.secondaryAxis?.position === 'top';
+  const hasSecondaryBottom = o === 'horizontal' && model.secondaryAxis?.position === 'bottom';
   const hasZonePercent = o === 'horizontal' && !!model.selectedPercents && model.selectedPercents.length > 0;
-  const height = Math.max(280, padTB(model.choices.title !== 'off', hasSecondaryAxis, hasZonePercent) + 2 * halfNeed);
+  const height = Math.max(280, padTB(model.choices.title !== 'off', hasSecondaryTop, hasSecondaryBottom, hasZonePercent) + 2 * halfNeed);
   return { width, height };
 }
 
 /** Vertical padding the plot does not get to use (title + axis/status,
  * plus a secondary axis's own line/ticks/labels row and/or the zone
- * percent annotations' row, when present). */
-function padTB(titleOn: boolean, hasSecondaryAxis: boolean, hasZonePercent: boolean): number {
-  return (titleOn ? 60 : 28) + 80 + (hasSecondaryAxis ? SECONDARY_AXIS_H : 0) + (hasZonePercent ? ZONE_PERCENT_EXTRA_H : 0);
+ * percent annotations' row, when present). Must mirror renderSvg's own
+ * padT/padB formula, or the default canvas ends up sized for a
+ * different stack than what actually gets drawn into it. */
+function padTB(titleOn: boolean, hasSecondaryTop: boolean, hasSecondaryBottom: boolean, hasZonePercent: boolean): number {
+  const topStackHeight = (hasZonePercent ? ZONE_PERCENT_ROW : 0) + (hasSecondaryTop ? SECONDARY_TOP_ROW : 0);
+  return (titleOn ? 60 : 28) + topStackHeight + 80 + (hasSecondaryBottom ? SECONDARY_AXIS_H : 0);
 }
 
 /** Layout one row per constraint. Lower family occupies the lower half
@@ -543,14 +557,21 @@ function zonePercentAnnotations(
 ): string[] {
   const lines = model.selectedPercents ?? [];
   const out: string[] = [];
+  /* Colour follows whether S is actually crossed for THIS boundary's
+   * family, not the sign of `percent` — that sign now follows the
+   * number line (positive = above, negative = below), not safety, so a
+   * healthy upper-boundary reading is negative but still green. */
   const colorFor = (line: NonNullable<Resolved['selectedPercents']>[number]) =>
-    line.percent >= 0 ? palette.recommended : line.level === 'error' ? palette.conflict : palette.caution;
-  /* The boundary a line's percentage was actually computed against
-   * (model.controlling), not model.preferredInterval — the two usually
-   * coincide but can differ when several criteria share a side, and
-   * positioning against the wrong one would silently mislabel it. */
+    !line.crossed ? palette.recommended : line.level === 'error' ? palette.conflict : palette.caution;
+  /* model.preferredInterval, not model.controlling — the latter is
+   * must-only (it exists for the no-compliant-setting text, which is
+   * specifically about mandatory criteria) and silently ignores a
+   * `should` boundary with no must+margin counterpart. selectedPercents
+   * was computed against the SAME preferred-interval candidate set
+   * (see controllingPreferredLower/Upper), so this is guaranteed
+   * consistent with the percentage already shown. */
   const boundaryFor = (line: NonNullable<Resolved['selectedPercents']>[number]): number | undefined =>
-    line.edge === 'lower' ? model.controlling.lower?.boundary_A : model.controlling.upper?.boundary_A;
+    line.edge === 'lower' ? model.preferredInterval.minimum : model.preferredInterval.maximum;
   const textFor = (line: NonNullable<Resolved['selectedPercents']>[number], boundary_A: number) => {
     const sign = line.percent >= 0 ? '+' : '';
     return `${formatCondition(boundary_A)} ${sign}${formatPercent(line.percent)}`;
@@ -559,11 +580,13 @@ function zonePercentAnnotations(
   if (o === 'horizontal') {
     const xL = padL + leftGutter;
     const xR = padL + plotW - rightGutter;
-    /* Above the plot, in its own row well clear of the selected label
-     * (padT-12) — criterion rows already fill the plot's own top edge
-     * top-to-bottom, so there's no clean spot for a third text row
-     * inside it the way vertical's slim band allows. */
-    const y = padT - 26;
+    /* Adjacent to the plot/green band — the selected label was already
+     * pushed further up (topStackHeight, see renderSvg) to make room
+     * here, so this can sit right at the plot edge without colliding
+     * with it. Criterion rows fill the plot's own top edge top-to-
+     * bottom, so there's no clean spot for this text INSIDE the plot
+     * the way vertical's slim band allows. */
+    const y = padT - 4;
     const positioned = lines
       .map((line) => {
         const boundary_A = boundaryFor(line);
@@ -593,10 +616,20 @@ function zonePercentAnnotations(
     return out;
   }
 
-  /* Vertical: stack both lines together near the top of the band,
-   * ordered by actual screen position rather than by lower/upper — the
-   * axis can run either direction, and reading top-to-bottom should
-   * always match what's visually on top. */
+  /* Vertical: each label is anchored at ITS OWN boundary's true y —
+   * `upper` (bigger kA, by axis construction always the smaller/higher
+   * y) tries just inside the band below its marker first, `lower` tries
+   * just inside above its marker — so a label always sits near the
+   * value it's actually describing, never near a shared "top/bottom of
+   * band" position that could belong to the OTHER edge on a tall band.
+   * If the inside spot would land on the selected line/label, each
+   * label independently falls back to just OUTSIDE the band on its own
+   * side instead — still adjacent to the band, still tied to its own
+   * position, and naturally clear of a selection that sits inside the
+   * band. Only when a label's own position leaves no valid spot at all
+   * (a very short band with the selection right on top of it) is that
+   * one label dropped; if both end up within a row of each other, they
+   * merge into one line rather than overlap. */
   const bandX = verticalAxisX(padL) + 12;
   const bandW = verticalMarkerX(padL) - bandX - 24;
   const cx = bandX + bandW / 2;
@@ -604,15 +637,37 @@ function zonePercentAnnotations(
     .map((line) => {
       const boundary_A = boundaryFor(line);
       if (boundary_A === undefined || !Number.isFinite(boundary_A)) return null;
-      return { line, boundary_A, y: verticalY(model, axis, boundary_A / 1000, padT, plotH) };
+      return { line, boundary_A, y: verticalY(model, axis, boundary_A / 1000, padT, plotH), text: textFor(line, boundary_A) };
     })
-    .filter((v): v is { line: NonNullable<Resolved['selectedPercents']>[number]; boundary_A: number; y: number } => v !== null)
+    .filter((v): v is { line: NonNullable<Resolved['selectedPercents']>[number]; boundary_A: number; y: number; text: string } => v !== null);
+  if (positioned.length === 0) return out;
+  const selY = Number.isFinite(model.selection.value_A)
+    ? verticalYClamped(model, axis, model.selection.value_A / 1000, padT, plotH)
+    : null;
+  const exclusionTop = selY === null ? -Infinity : selY - 26;
+  const exclusionBottom = selY === null ? Infinity : selY + 12;
+  const clear = (y: number) => y < exclusionTop || y > exclusionBottom;
+
+  const placed = positioned
+    .map((p) => {
+      const isUpper = p.line.edge === 'upper';
+      const inside = p.y + (isUpper ? 12 : -12);
+      const outside = p.y + (isUpper ? -12 : 12);
+      const y = clear(inside) ? inside : clear(outside) ? outside : null;
+      return y === null ? null : { ...p, y };
+    })
+    .filter((v): v is NonNullable<typeof v> => v !== null)
     .sort((a, b) => a.y - b.y);
-  const topY = positioned.length > 0 ? Math.min(...positioned.map((p) => p.y)) : padT;
-  positioned.forEach(({ line, boundary_A }, i) => {
-    const y = topY + 14 + i * 14;
-    out.push(`<text data-role="zone-percent" data-edge="${line.edge}" x="${cx}" y="${y}" font-size="11" font-weight="700" text-anchor="middle" fill="${colorFor(line)}">${escapeText(textFor(line, boundary_A))}</text>`);
-  });
+
+  if (placed.length === 2 && Math.abs(placed[1].y - placed[0].y) < 13) {
+    const cyMerged = (placed[0].y + placed[1].y) / 2;
+    const combined = `${placed[0].text} · ${placed[1].text}`;
+    out.push(`<text data-role="zone-percent" x="${cx}" y="${cyMerged}" font-size="11" font-weight="700" text-anchor="middle" fill="${colorFor(placed[0].line)}">${escapeText(combined)}</text>`);
+    return out;
+  }
+  for (const p of placed) {
+    out.push(`<text data-role="zone-percent" data-edge="${p.line.edge}" x="${cx}" y="${p.y}" font-size="11" font-weight="700" text-anchor="middle" fill="${colorFor(p.line)}">${escapeText(p.text)}</text>`);
+  }
   return out;
 }
 
@@ -722,6 +777,11 @@ function secondaryAxisFrame(
   theme: { axis: string; foreground: string },
   leftGutter: number,
   rightGutter: number,
+  /** `top` only: whether the zone-percent row is also present, so this
+   * axis's own block stacks just above IT (rather than above the plot
+   * directly) — both end up adjacent to the plot, in the same styled
+   * strip, ordered zone-percent innermost. */
+  hasZonePercent = false,
 ): string {
   const out: string[] = [];
   const xL = padL + leftGutter;
@@ -738,19 +798,18 @@ function secondaryAxisFrame(
   const secB = toSecondaryUnit(axis.maximum);
   const secTicks = buildTicks(Math.min(secA, secB), Math.max(secA, secB), axis.scale === 'indicative' ? 'linear' : axis.scale);
 
-  /* `bandStart` is the top of the reserved strip in both cases — for
-   * `top` that's the OLD padT (before this axis pushed it down further,
-   * carving out the strip above the plot); for `bottom` it's simply
-   * where the plot ends. Kept well clear of the selected label, which
-   * already lives at padT-12 for `top` (spec's reference figure) and of
-   * the primary axis's own tick-label row for `bottom`. */
   const isTop = secondaryAxis.position === 'top';
-  const bandStart = isTop ? padT - SECONDARY_AXIS_H : padT + plotH;
-  /* `bottom` must additionally clear the PRIMARY axis's own tick-label
-   * row, which already occupies padT+plotH+22 (frame()'s own layout) —
-   * push well past that rather than reusing the `top` offsets. */
-  const lineY = isTop ? bandStart + 22 : bandStart + 40;
-  const labelY = isTop ? bandStart + 8 : bandStart + 58;
+  /* `top`: adjacent to the plot (or to the zone-percent row, if that's
+   * also present, so the two stay stacked together right next to the
+   * band rather than either floating apart) — the selected label was
+   * already pushed up above this whole stack by topStackHeight in
+   * renderSvg, so there's no longer a risk of colliding with it here.
+   * `bottom` must additionally clear the PRIMARY axis's own tick-label
+   * row, which already occupies padT+plotH+22 (frame()'s own layout). */
+  const zoneBoundary = padT - (hasZonePercent ? ZONE_PERCENT_ROW : 0);
+  const bandStart = isTop ? zoneBoundary - SECONDARY_TOP_ROW : padT + plotH;
+  const lineY = isTop ? zoneBoundary - 14 : bandStart + 40;
+  const labelY = isTop ? zoneBoundary - 28 : bandStart + 58;
   const tickDir = isTop ? -1 : 1;
 
   out.push(`<line data-role="secondary-axis" x1="${xL}" y1="${lineY}" x2="${xR}" y2="${lineY}" stroke="${theme.axis}" stroke-width="1" stroke-dasharray="2,2"/>`);
@@ -1031,6 +1090,11 @@ function drawSelection(
   palette: { selected: string },
   leftGutter: number,
   rightGutter: number,
+  /** Horizontal only: combined height of the zone-percent/secondary-axis
+   * rows now stacked between the selected label and the plot — the
+   * label sits this far above its original padT-12 offset so it stays
+   * the TOPMOST element in that stack, per spec's ordering. */
+  topStackHeight = 0,
 ): string {
   const out: string[] = [];
   /* `range focus` bounds the axis around the controlling boundaries;
@@ -1045,7 +1109,7 @@ function drawSelection(
     const xRange = xR - xL;
     const x = selSide === 'low' ? xL : selSide === 'high' ? xR : xL + scalePos(model, axis, model.selection.value_A / 1000, xRange);
     out.push(`<line data-role="selected-line" x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}" stroke="${palette.selected}" stroke-width="2"/>`);
-    out.push(`<text data-role="selected-label" x="${x}" y="${padT - 12}" font-size="${fs + 1}" font-weight="700" fill="${palette.selected}" text-anchor="middle">${escapeText(selectedLabelText(model))}</text>`);
+    out.push(`<text data-role="selected-label" x="${x}" y="${padT - 12 - topStackHeight}" font-size="${fs + 1}" font-weight="700" fill="${palette.selected}" text-anchor="middle">${escapeText(selectedLabelText(model))}</text>`);
     out.push(`<circle data-role="selected-marker-dot" cx="${x}" cy="${padT + plotH / 2}" r="6" fill="${palette.selected}"/>`);
   } else {
     const y = verticalYClamped(model, axis, model.selection.value_A / 1000, padT, plotH);
@@ -1116,24 +1180,30 @@ function statusText(model: Resolved, palette: { selected: string; caution: strin
     const p = model.preferredInterval;
     return { state: null, stateColor: palette.caution, detail: `Preferred ${amps(p.minimum)} and ${amps(p.maximum)}` };
   }
+  if (model.status === 'recommended') {
+    /* Nothing to say here that isn't already obvious from the marker
+     * sitting in the green zone, or already stated by the zone percent
+     * annotations themselves — a "Recommended" label would just be
+     * announcing the diagram's own colour back at the reader. */
+    return { state: null, stateColor: palette.selected, detail: '' };
+  }
 
   const state = (() => {
     const words = model.choices.words;
     const w = (k: WordName, fb: string) => words[k] ?? fb;
     switch (model.status) {
-      case 'recommended': return w('recommended', 'Recommended');
       case 'caution': return w('caution', 'Caution');
       case 'do-not-set': return w('do-not-set', 'Do not set');
       case 'no-compliant-setting': return w('no-compliant', 'No compliant setting');
-      /* 'no-selection' and 'no-recommended-setting' are handled by the
-       * early returns above — excluded from this switch's type by that
-       * point, so TS already treats this as exhaustive without them. */
+      /* 'no-selection', 'no-recommended-setting' and 'recommended' are
+       * handled by the early returns above — excluded from this
+       * switch's type by that point, so TS already treats this as
+       * exhaustive without them. */
     }
   })();
-  const stateColor =
-    model.status === 'do-not-set' || model.status === 'no-compliant-setting' ? palette.conflict :
-    model.status === 'caution' ? palette.caution :
-    palette.selected;
+  /* Only caution/do-not-set/no-compliant-setting reach here —
+   * 'recommended' already returned above. */
+  const stateColor = model.status === 'caution' ? palette.caution : palette.conflict;
 
   /* detail line — recommended/caution/do-not-set no longer repeat
    * model.selectedPercents here: those are now annotated directly on
@@ -1167,8 +1237,13 @@ function statusCallout(model: Resolved, anchorX: number, height: number, fs: num
 
   if (state === null) {
     /* no-recommended-setting / no-selection: no verdict word, just the
-     * range values as plain neutral text (no pill, no bold). */
-    out.push(`<text x="${anchorX}" y="${cy}" font-size="${fs - 1}" fill="${theme.callout}" text-anchor="middle">${escapeText(detail)}</text>`);
+     * range values as plain neutral text (no pill, no bold).
+     * `recommended` also lands here with an empty detail — nothing to
+     * say that isn't already shown by the marker and zone annotations,
+     * so skip the element entirely rather than emit empty text. */
+    if (detail) {
+      out.push(`<text x="${anchorX}" y="${cy}" font-size="${fs - 1}" fill="${theme.callout}" text-anchor="middle">${escapeText(detail)}</text>`);
+    }
     return out.join('\n');
   }
 
@@ -1200,8 +1275,11 @@ function verticalStatusText(model: Resolved, y: number, padL: number, fs: number
   const out: string[] = [];
   if (state === null) {
     /* no-recommended-setting / no-selection: no verdict word, just the
-     * range values as plain neutral text. */
-    out.push(`<text x="${x}" y="${y + 20}" font-size="${fs - 1}" fill="${theme.callout}" text-anchor="start">${escapeText(detail)}</text>`);
+     * range values as plain neutral text. `recommended` also lands
+     * here with an empty detail — skip the element entirely. */
+    if (detail) {
+      out.push(`<text x="${x}" y="${y + 20}" font-size="${fs - 1}" fill="${theme.callout}" text-anchor="start">${escapeText(detail)}</text>`);
+    }
     return out.join('\n');
   }
   out.push(`<text x="${x}" y="${y + 20}" font-size="${fs}" font-weight="700" fill="${stateColor}" text-anchor="start">${escapeText(state)}</text>`);
