@@ -62,7 +62,6 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
   const { left: leftGutter, right: rightGutter } = horizontalGutters(model, fs);
 
   const hasSelection = Number.isFinite(model.selection.value_A);
-  const hasIndicative = axisIsIndicative(model);
 
   /* A `secondary axis` (horizontal only) reserves its own line/ticks/
    * labels row on whichever side it's declared, on top of the usual
@@ -91,17 +90,16 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
 
   /* Bottom stack (horizontal only): axis line/ticks, the selected
    * value's own row (spec: written on/below the axis, not repeated
-   * above it), the indicative-scale notice, and an optional secondary
-   * axis — each reserved only when actually present, stacked in that
-   * order immediately under the plot, with the status callout and an
-   * optional bottom title below all of it. */
+   * above it), and an optional secondary axis — each reserved only
+   * when actually present, stacked in that order immediately under the
+   * plot, with the status callout and an optional bottom title below
+   * all of it. */
   const hasAxis = model.choices.axis !== 'off';
   const bottomAxisRow = o === 'horizontal' && hasAxis ? AXIS_TICK_ROW : 0;
   const bottomSelectedRow = o === 'horizontal' && hasSelection ? SELECTED_VALUE_ROW : 0;
-  const bottomIndicativeRow = o === 'horizontal' && hasIndicative ? INDICATIVE_ROW : 0;
   const bottomSecondary = hasSecondaryBottom ? SECONDARY_AXIS_H : 0;
   const statusArea = o === 'horizontal' ? STATUS_AREA : (hasSelection ? 16 : STATUS_AREA);
-  const padB = bottomAxisRow + bottomSelectedRow + bottomIndicativeRow + bottomSecondary + statusArea + (titleAtBottom ? BOTTOM_TITLE_ROW : 0);
+  const padB = bottomAxisRow + bottomSelectedRow + bottomSecondary + statusArea + (titleAtBottom ? BOTTOM_TITLE_ROW : 0);
 
   const plotW = declareWidth - padL - padR;
   const plotH = declareHeight - padB - padT;
@@ -147,14 +145,6 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
   parts.push(`<g data-layer="chrome">`);
   /* Title + selected label above the plot */
   if (titleAtTop) parts.push(header(model, declareWidth, padL, padR, fs, theme));
-
-  /* Spec §Scale: indicative scale MUST show a notice that the axis is
-   * ordered but not calibrated to value — placed just below the axis
-   * (left-aligned, matching normal reading order) rather than floating
-   * above the plot disconnected from the axis it describes. */
-  if (hasIndicative) {
-    parts.push(indicativeNotice(o, padL, padT, plotH, leftGutter, fs, theme, bottomAxisRow + bottomSelectedRow));
-  }
   parts.push(`</g>`);
 
   parts.push(`<g data-layer="grid">`);
@@ -272,10 +262,6 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
   return parts.join('\n');
 }
 
-function axisIsIndicative(model: Resolved): boolean {
-  return model.axis.scale === 'indicative';
-}
-
 /* ============================================================ pieces */
 
 /** Outer canvas edge margin — deliberately tight (spec §Layout: "no more
@@ -342,9 +328,6 @@ const AXIS_TICK_ROW = 26;
  * §Selected-setting label: both live at the axis end now, not split
  * between the axis and a floating row above the plot. */
 const SELECTED_VALUE_ROW = 36;
-/** Height reserved for the "Indicative spacing — not to scale" notice,
- * placed just below the axis rather than floating above the plot. */
-const INDICATIVE_ROW = 18;
 /** Room for the status callout (state pill + detail line) at the very
  * bottom of the canvas. */
 const STATUS_AREA = 56;
@@ -519,14 +502,19 @@ function defaultCanvasSize(model: Resolved, o: 'horizontal' | 'vertical', fs: nu
   const { left, right } = horizontalGutters(model, fs);
   const minAxisWidth = model.axis.scale === 'log' ? MIN_AXIS_WIDTH_LOG : MIN_AXIS_WIDTH;
   const width = Math.max(760, PAD_L + PAD_R + left + right + minAxisWidth);
-  /* Height: the shared row sequence needs headroom for its stacked
-   * value/margin text per row, once. The two-half fallback stacks the
-   * two families back to back (see layoutRows) rather than each
-   * reserving a fixed half, so it needs the ACTUAL total row count
-   * (upperCount + lowerCount), not the larger family's count doubled —
-   * that would leave the same dead space in the canvas size that
-   * layoutRows no longer leaves in the layout itself. */
-  const rowsNeed = (shareRows ? maxFamily : upperCount + lowerCount) * ROW_PITCH + ROW_TOP_CLEARANCE + 20;
+  /* Height: ROW_TOP_CLEARANCE gets the first row's marker clear of
+   * whatever's stacked above the plot, then each additional row adds
+   * one more ROW_PITCH, and +40 clears the LAST row's own margin text
+   * below it (which reaches ~28px down) with a little buffer — not
+   * another full ROW_PITCH, which double-counted that same clearance
+   * and left a visible dead gap between the last row and the plot's
+   * own bottom edge (where the selected marker sits when there's a
+   * selection). The two-half fallback stacks the two families back to
+   * back (see layoutRows) rather than each reserving a fixed half, so
+   * it needs the ACTUAL total row count (upperCount + lowerCount), not
+   * the larger family's count doubled. */
+  const rowCount = shareRows ? maxFamily : upperCount + lowerCount;
+  const rowsNeed = ROW_TOP_CLEARANCE + Math.max(0, rowCount - 1) * ROW_PITCH + 40;
   const height = Math.max(240, padTB(model) + rowsNeed);
   return { width, height };
 }
@@ -561,7 +549,6 @@ function padTB(model: Resolved): number {
   const hasSecondaryBottom = o === 'horizontal' && model.secondaryAxis?.position === 'bottom';
   const hasZonePercent = o === 'horizontal' && !!model.selectedPercents && model.selectedPercents.length > 0;
   const hasSelection = Number.isFinite(model.selection.value_A);
-  const hasIndicative = axisIsIndicative(model);
   const titleOn = model.choices.title !== 'off';
   const titleAtBottom = titleOn && model.choices.titlePosition === 'bottom';
   const titleAtTop = titleOn && !titleAtBottom;
@@ -572,10 +559,9 @@ function padTB(model: Resolved): number {
   const hasAxis = model.choices.axis !== 'off';
   const bottomAxisRow = o === 'horizontal' && hasAxis ? AXIS_TICK_ROW : 0;
   const bottomSelectedRow = o === 'horizontal' && hasSelection ? SELECTED_VALUE_ROW : 0;
-  const bottomIndicativeRow = o === 'horizontal' && hasIndicative ? INDICATIVE_ROW : 0;
   const bottomSecondary = hasSecondaryBottom ? SECONDARY_AXIS_H : 0;
   const statusArea = o === 'horizontal' ? STATUS_AREA : (hasSelection ? 16 : STATUS_AREA);
-  const padB = bottomAxisRow + bottomSelectedRow + bottomIndicativeRow + bottomSecondary + statusArea + (titleAtBottom ? BOTTOM_TITLE_ROW : 0);
+  const padB = bottomAxisRow + bottomSelectedRow + bottomSecondary + statusArea + (titleAtBottom ? BOTTOM_TITLE_ROW : 0);
 
   return padT + padB;
 }
@@ -675,21 +661,6 @@ function header(model: Resolved, width: number, padL: number, padR: number, fs: 
  * Anchored just below the axis, left-aligned at the axis's own start —
  * reads as an axis caption rather than a floating annotation, and does
  * the same in both orientations. */
-function indicativeNotice(
-  o: 'horizontal' | 'vertical',
-  padL: number,
-  padT: number,
-  plotH: number,
-  leftGutter: number,
-  fs: number,
-  theme: { callout: string },
-  bottomAxisRow: number,
-): string {
-  const x = o === 'horizontal' ? padL + leftGutter : verticalAxisX(padL);
-  const y = o === 'horizontal' ? padT + plotH + bottomAxisRow + 14 : padT + plotH + 28;
-  return `<text data-role="indicative-notice" x="${x}" y="${y}" font-size="${fs - 2}" font-weight="700" text-anchor="start" letter-spacing="0.3" fill="${theme.callout}">Indicative spacing — not to scale</text>`;
-}
-
 function zones(
   model: Resolved,
   axis: Resolved['axis'],

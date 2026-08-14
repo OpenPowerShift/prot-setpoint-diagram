@@ -376,7 +376,7 @@ scale auto
 
 `linear`:: Calibrated linear position.
 `log`:: Calibrated base-10 logarithmic position. Every plotted value MUST be positive.
-`indicative`:: Ordered, non-calibrated spacing with minimum marker separation. The renderer MUST show a notice equivalent to "Indicative spacing — not to scale".
+`indicative`:: Ordered, non-calibrated spacing with minimum marker separation. Since positions are ranked rather than measured, the calibrated axis defaults to off for this scale (see `style axis`).
 `auto`:: Select linear unless `maximum positive value / minimum positive value >= 20`, then select logarithmic. The selected scale MUST be labelled.
 
 Default: `auto`.

@@ -373,12 +373,6 @@ describe('spec §Status order: no forced uppercase', () => {
     expect(svg).not.toContain('CAUTION');
   });
 
-  it('indicative-spacing notice renders sentence case, not all-caps', () => {
-    const { svg } = parseAndRender(load('11-indicative-scale'));
-    expect(svg).toContain('Indicative spacing — not to scale');
-    expect(svg).not.toContain('INDICATIVE SPACING');
-  });
-
   it('no-compliant-setting keeps a status word, but sentence case and without "conflict" wording', () => {
     const { svg, result } = parseAndRender(load('01-mandatory-conflict'));
     expect(result.resolved?.status).toBe('no-compliant-setting');
