@@ -209,10 +209,29 @@ psdl-editor {
 }
 
 .psdl-editor-host {
+  position: relative;
   flex: 1;
   display: flex;
   min-height: 0;
   overflow: hidden;
+}
+
+/* Touch-device stand-in for the desktop hover tooltip on keywords —
+ * see setupTouchKeywordHelp in psdl-editor.ts. */
+.psdl-kw-touch-tip {
+  position: absolute;
+  z-index: 20;
+  max-width: min(320px, calc(100% - 16px));
+  background: var(--psdl-bg-elevated);
+  color: var(--psdl-fg);
+  border: 1px solid var(--psdl-border);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-family: var(--psdl-sans);
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
 }
 
 .cm-editor {
@@ -385,8 +404,48 @@ psdl-editor {
 
 /* tabs for narrow displays */
 @media (max-width: 860px) {
+  /* The desktop layout is a fixed 100vh with every pane managing its
+   * own internal scroll via a chain of flex `min-height: 0`s. Stacked
+   * vertically that chain breaks down: the editor pane keeps its
+   * desktop split (an inline `flex: 0 0 var(--psdl-split-left)` set by
+   * psdl-app.ts for the drag-resize handle, which only an `!important`
+   * here can override) at a fixed % of the now-vertical space, and
+   * the viewer pane's default `min-height: auto` lets its content push
+   * it taller than whatever's left — past the bottom of the screen,
+   * with nothing set up to scroll to it. Simplest fix: stop trying to
+   * fit the whole app in one screen and let the PAGE scroll instead,
+   * same as any other stacked mobile layout. */
+  html, body {
+    height: auto;
+    min-height: 100%;
+    overflow-y: auto;
+  }
+
+  psdl-app {
+    height: auto;
+    min-height: 100vh;
+  }
+
   .psdl-main {
     flex-direction: column;
+  }
+
+  .psdl-side {
+    flex: 0 0 auto !important;
+    min-height: 0;
+  }
+
+  /* Editor pane: bounded so a long source file scrolls WITHIN it
+   * (CodeMirror already does this internally once its container has a
+   * real height) instead of pushing the diagram down an arbitrary
+   * amount. The diagram pane below it is left to its natural height —
+   * the page scrolling is what makes the rest of it reachable. */
+  .psdl-side:first-of-type {
+    max-height: 46vh;
+  }
+
+  .psdl-side:first-of-type psdl-editor {
+    min-height: 0;
   }
 
   .psdl-side-title {
@@ -414,7 +473,9 @@ psdl-editor {
   color: var(--psdl-fg);
   margin: 24px auto;
   width: min(1080px, 96%);
+  min-width: 0;
   height: calc(100vh - 48px);
+  height: calc(100dvh - 48px);
   border-radius: 6px;
   display: flex;
   flex-direction: column;
@@ -535,7 +596,9 @@ mark.psdl-search-hit.is-current {
 
 .psdl-guide-content {
   flex: 1;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 32px 40px;
   background: var(--psdl-bg-sunken);
   font-family: var(--psdl-sans);
@@ -551,8 +614,25 @@ mark.psdl-search-hit.is-current {
   line-height: 1.55;
   font-size: 15px;
   color: var(--psdl-fg);
+  /* This class is applied to the SAME element as `.psdl-guide-content`
+   * (`class="psdl-guide-content psdl-prose"`), which needs `flex: 1` to
+   * stretch to the panel's width. An auto/unset `width` here left the
+   * flexbox cross-axis "auto margins absorb space" rule in play: with
+   * `margin: 0 auto` and no explicit width, the box sized to its own
+   * content instead of stretching to fill, so it could render wider
+   * than its parent (clipped by the parent's `overflow: hidden`,
+   * reading as text cut off flush at the same edge rather than
+   * wrapped). An explicit `width: 100%` makes the box's cross size
+   * definite, so flexbox stretch applies normally, and `max-width` +
+   * auto margins go back to ordinary block-level centering once that
+   * cap is smaller than the available width (desktop). */
+  width: 100%;
   max-width: 820px;
   margin: 0 auto;
+  /* An unbroken run — a file path in a code span, a long identifier —
+   * has no natural wrap point; without this a narrow viewport would
+   * still force horizontal overflow rather than wrapping it. */
+  overflow-wrap: anywhere;
 }
 
 .psdl-prose h1 {
@@ -718,6 +798,30 @@ mark.psdl-search-hit.is-current {
   color: var(--psdl-fg-muted);
   background: var(--psdl-bg-elevated);
   border-radius: 0 4px 4px 0;
+}
+
+/* Guide modal on narrow displays — deliberately placed AFTER the base
+ * `.psdl-guide-panel`/`.psdl-guide-content` rules above: an earlier
+ * `@media` block at the same specificity loses to a later
+ * unconditioned rule in the cascade, so a mobile override has to come
+ * after what it overrides, not just be wrapped in the right query. */
+@media (max-width: 860px) {
+  /* The desktop 24px margin + 40px content padding is ~30% of a
+   * phone-width screen spent on whitespace before any text starts —
+   * cramped rather than generous at that size. */
+  .psdl-guide-panel {
+    margin: 8px auto;
+    height: calc(100vh - 16px);
+    height: calc(100dvh - 16px);
+  }
+
+  .psdl-guide-content {
+    padding: 20px 16px;
+  }
+
+  .psdl-guide-search input[type="search"] {
+    width: 120px;
+  }
 }
 
 /* picker */

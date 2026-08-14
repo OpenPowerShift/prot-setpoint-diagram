@@ -43,6 +43,44 @@ export class PsdlEditor extends LitElement {
       state: this.makeState(),
       parent: this.hostEl,
     });
+    this.setupTouchKeywordHelp();
+  }
+
+  /** Keyword help (see `keywordHintPlugin` below) is a `title` attribute,
+   * relying on the browser's native hover tooltip — there IS no hover on
+   * a touchscreen, so it's otherwise simply unreachable on mobile. Tap
+   * doesn't get hijacked for this: it still places the cursor as normal
+   * (nothing here calls preventDefault), it just ALSO surfaces the same
+   * help text the desktop hover would have shown, in a small popover
+   * anchored to the tapped word, dismissed by the next tap/scroll/edit. */
+  private setupTouchKeywordHelp(): void {
+    if (!this.hostEl || !this.view) return;
+    const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (!isTouch) return;
+    const tip = document.createElement('div');
+    tip.className = 'psdl-kw-touch-tip';
+    tip.hidden = true;
+    this.hostEl.appendChild(tip);
+    let hideTimer: ReturnType<typeof setTimeout> | null = null;
+    const hide = () => {
+      tip.hidden = true;
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    };
+    this.hostEl.addEventListener('touchend', (e: TouchEvent) => {
+      const target = (e.target as HTMLElement | null)?.closest('[title]') as HTMLElement | null;
+      const help = target?.getAttribute('title');
+      if (!target || !help) { hide(); return; }
+      const hostRect = this.hostEl!.getBoundingClientRect();
+      const wordRect = target.getBoundingClientRect();
+      tip.textContent = help;
+      tip.hidden = false;
+      tip.style.left = `${Math.max(4, wordRect.left - hostRect.left)}px`;
+      tip.style.top = `${wordRect.bottom - hostRect.top + 4}px`;
+      if (hideTimer) clearTimeout(hideTimer);
+      hideTimer = setTimeout(hide, 4000);
+    });
+    this.view.scrollDOM.addEventListener('scroll', hide, { passive: true });
+    this.view.dom.addEventListener('keydown', hide);
   }
 
   private makeState(): EditorState {
