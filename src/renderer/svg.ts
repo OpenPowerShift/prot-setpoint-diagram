@@ -1689,6 +1689,23 @@ function verticalStatusText(model: Resolved, y: number, padL: number, fs: number
 }
 
 /**
+ * Rounds to the SAME precision the diagram displays a value at (whole
+ * amps below 1 kA, one decimal kA at or above it — matching
+ * `formatCondition`/`formatSetting` in units.ts) rather than an
+ * effectively-exact epsilon. Two values that come from unrelated
+ * computations (e.g. an entered setting vs. a margin-adjusted boundary)
+ * can land a fraction of an amp apart and still print identically —
+ * keying the indicative rank on that display precision instead of the
+ * raw float means they also SHARE a position, so a marker and the
+ * selected line that read the same on screen actually touch instead of
+ * sitting a full rank apart for a difference too small to see.
+ */
+function displayRoundedKA(v_A: number): number {
+  const roundedA = Math.abs(v_A) < 1000 ? Math.round(v_A) : Math.round(v_A / 100) * 100;
+  return roundedA / 1000;
+}
+
+/**
  * Indicative scale (spec §Scale): "ordered, non-calibrated spacing with
  * minimum marker separation." Every distinct plotted value (criterion,
  * margin boundary, selection) gets an equal-rank position along the
@@ -1698,7 +1715,7 @@ function verticalStatusText(model: Resolved, y: number, padL: number, fs: number
 function collectIndicativeValues(model: Resolved): number[] {
   const set = new Set<number>();
   const add = (v_A: number) => {
-    if (Number.isFinite(v_A)) set.add(Math.round((v_A / 1000) * 1e6) / 1e6);
+    if (Number.isFinite(v_A)) set.add(displayRoundedKA(v_A));
   };
   for (const c of model.constraints) {
     add(c.value_A);
@@ -1712,7 +1729,7 @@ function indicativeFraction(model: Resolved, v_kA: number): number {
   const values = collectIndicativeValues(model);
   const n = values.length;
   if (n === 0) return 0.5;
-  const key = Math.round(v_kA * 1e6) / 1e6;
+  const key = displayRoundedKA(v_kA * 1000);
   const idx = values.indexOf(key);
   if (idx !== -1) return n > 1 ? idx / (n - 1) : 0.5;
   /* Value isn't one of the plotted points (e.g. an off-range reference)
