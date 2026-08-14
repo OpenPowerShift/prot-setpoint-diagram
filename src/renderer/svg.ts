@@ -210,6 +210,20 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
     });
   }
 
+  /* Selected line drawn BEFORE the markers layer (horizontal spans the
+   * full plot height, so it can pass directly through an unrelated
+   * row's marker line whenever that row's range straddles the selected
+   * value) — painting it first lets the criterion markers render on
+   * top and stay crisp, instead of the reference line cutting visibly
+   * across them. The dot and its text stay in the foreground layer
+   * below, drawn after markers, since nothing else occupies their row. */
+  const selection = hasSelection ? drawSelection(model, axis, padL, padT, plotW, plotH, o, fs, palette, leftGutter, rightGutter, bottomAxisRow) : null;
+  if (selection) {
+    parts.push(`<g data-layer="selected-line">`);
+    parts.push(selection.line);
+    parts.push(`</g>`);
+  }
+
   parts.push(`<g data-layer="markers">`);
   /* Constraints (each on its own row). Constraints sharing an exact
    * (direction, value, boundary) triple would otherwise draw stacked,
@@ -224,12 +238,12 @@ export function renderSvg(model: Resolved, opts: RenderOptions = {}): string {
   parts.push(`</g>`);
 
   parts.push(`<g data-layer="foreground">`);
-  /* Selected — orange line + selected label. The status text is anchored
+  /* Selected — orange dot + selected label. The status text is anchored
    * to it (spec's own reference figures place both directly against the
    * selected line, not at a fixed canvas position) rather than centred
    * on the whole canvas. */
-  if (hasSelection) {
-    parts.push(drawSelection(model, axis, padL, padT, plotW, plotH, o, fs, palette, leftGutter, rightGutter, bottomAxisRow));
+  if (selection) {
+    parts.push(selection.marker);
   }
 
   if (o === 'vertical' && selY !== null) {
@@ -1462,8 +1476,9 @@ function drawSelection(
    * below the plot — the selected value's own row stacks just under
    * that. */
   bottomAxisRow = 0,
-): string {
-  const out: string[] = [];
+): { line: string; marker: string } {
+  const lineOut: string[] = [];
+  const markerOut: string[] = [];
   const parts = selectedLabelParts(model);
   /* `range focus` bounds the axis around the controlling boundaries;
    * the selection is normally within them (spec: focus "focuses on
@@ -1476,13 +1491,13 @@ function drawSelection(
     const xR = padL + plotW - rightGutter;
     const xRange = xR - xL;
     const x = selSide === 'low' ? xL : selSide === 'high' ? xR : xL + scalePos(model, axis, model.selection.value_A / 1000, xRange);
-    out.push(`<line data-role="selected-line" x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}" stroke="${palette.selected}" stroke-width="2"/>`);
+    lineOut.push(`<line data-role="selected-line" x1="${x}" y1="${padT}" x2="${x}" y2="${padT + plotH}" stroke="${palette.selected}" stroke-width="2"/>`);
     /* On the axis itself, not mid-plot — mid-plot put it in the same
      * lane as whichever criterion row happened to land there, colliding
      * with that row's dot/value text. The axis is a lane nothing else
      * occupies, so anchoring here guarantees no collision regardless of
      * how many criterion rows there are. */
-    out.push(`<circle data-role="selected-marker-dot" cx="${x}" cy="${padT + plotH}" r="6" fill="${palette.selected}"/>`);
+    markerOut.push(`<circle data-role="selected-marker-dot" cx="${x}" cy="${padT + plotH}" r="6" fill="${palette.selected}"/>`);
     /* Numeric value(s), then the word label UNDER it, both on their own
      * rows just below the axis's own tick-label row — spec
      * §Selected-setting label: "written on the axis or below it." The
@@ -1493,8 +1508,8 @@ function drawSelection(
      * anchored unit instead. */
     const valueParts = [parts.primary, parts.above, parts.below].filter((v): v is string => !!v);
     const valueY = padT + plotH + bottomAxisRow + 14;
-    out.push(`<text data-role="selected-value" x="${x}" y="${valueY}" font-size="${fs - 1}" font-weight="700" fill="${palette.selected}" text-anchor="middle">${escapeText(valueParts.join(' · '))}</text>`);
-    out.push(`<text data-role="selected-label" x="${x}" y="${valueY + 16}" font-size="${fs - 1}" font-weight="700" fill="${palette.selected}" text-anchor="middle">${escapeText(parts.prefix)}</text>`);
+    markerOut.push(`<text data-role="selected-value" x="${x}" y="${valueY}" font-size="${fs - 1}" font-weight="700" fill="${palette.selected}" text-anchor="middle">${escapeText(valueParts.join(' · '))}</text>`);
+    markerOut.push(`<text data-role="selected-label" x="${x}" y="${valueY + 16}" font-size="${fs - 1}" font-weight="700" fill="${palette.selected}" text-anchor="middle">${escapeText(parts.prefix)}</text>`);
   } else {
     const y = verticalYClamped(model, axis, model.selection.value_A / 1000, padT, plotH);
     /* The line now runs from the axis to just past the marker column —
@@ -1504,22 +1519,22 @@ function drawSelection(
      * plot width. */
     const axisX = verticalAxisX(padL);
     const lineEndX = verticalMarkerX(padL) + 40;
-    out.push(`<line data-role="selected-line" x1="${axisX}" y1="${y}" x2="${lineEndX}" y2="${y}" stroke="${palette.selected}" stroke-width="2"/>`);
-    out.push(`<circle data-role="selected-marker-dot" cx="${verticalMarkerX(padL)}" cy="${y}" r="6" fill="${palette.selected}"/>`);
+    lineOut.push(`<line data-role="selected-line" x1="${axisX}" y1="${y}" x2="${lineEndX}" y2="${y}" stroke="${palette.selected}" stroke-width="2"/>`);
+    markerOut.push(`<circle data-role="selected-marker-dot" cx="${verticalMarkerX(padL)}" cy="${y}" r="6" fill="${palette.selected}"/>`);
     /* Label sits on the RIGHT of the (now short) line, not in the far
      * label column — primary value on the line itself, MVA above it and
      * secondary amps below it when both are requested, so neither
      * stacks into a single long run-on line. */
     const labelX = lineEndX + 10;
-    out.push(`<text data-role="selected-label" x="${labelX}" y="${y + 4}" font-size="${fs + 1}" font-weight="700" fill="${palette.selected}" text-anchor="start">${escapeText(`${parts.prefix} ${parts.primary}`)}</text>`);
+    markerOut.push(`<text data-role="selected-label" x="${labelX}" y="${y + 4}" font-size="${fs + 1}" font-weight="700" fill="${palette.selected}" text-anchor="start">${escapeText(`${parts.prefix} ${parts.primary}`)}</text>`);
     if (parts.above) {
-      out.push(`<text data-role="selected-value-above" x="${labelX}" y="${y - 10}" font-size="${fs - 1}" font-weight="600" fill="${palette.selected}" text-anchor="start">${escapeText(parts.above)}</text>`);
+      markerOut.push(`<text data-role="selected-value-above" x="${labelX}" y="${y - 10}" font-size="${fs - 1}" font-weight="600" fill="${palette.selected}" text-anchor="start">${escapeText(parts.above)}</text>`);
     }
     if (parts.below) {
-      out.push(`<text data-role="selected-value-below" x="${labelX}" y="${y + 22}" font-size="${fs - 1}" font-weight="600" fill="${palette.selected}" text-anchor="start">${escapeText(parts.below)}</text>`);
+      markerOut.push(`<text data-role="selected-value-below" x="${labelX}" y="${y + 22}" font-size="${fs - 1}" font-weight="600" fill="${palette.selected}" text-anchor="start">${escapeText(parts.below)}</text>`);
     }
   }
-  return out.join('\n');
+  return { line: lineOut.join('\n'), marker: markerOut.join('\n') };
 }
 
 /**
