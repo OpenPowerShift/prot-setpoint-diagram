@@ -238,6 +238,23 @@ psdl-editor {
   background: var(--psdl-bg-sunken);
   color: var(--psdl-fg);
   height: 100%;
+  /* `.psdl-editor-host` is a row flex container with no explicit basis
+   * on this, its only child — a flex item's default `flex: 0 1 auto`
+   * shrinks it only down to its own min-content width, and for an
+   * unwrapped code line that's the line's full rendered width (a
+   * single unbroken run has nowhere else to break). On a container
+   * narrower than the longest line — any phone in portrait, for PSDL
+   * source with any real line length — the editor's own box grew
+   * PAST its parent instead of scrolling within it, and with the page
+   * itself non-scrollable horizontally by design, that overflow was
+   * simply unreachable: no horizontal scrollbar anywhere, not even
+   * CodeMirror's own (`.cm-scroller` had nothing to scroll — ITS box
+   * was already the oversized one). `width: 100%` + `min-width: 0`
+   * force this to respect the parent's actual width regardless of
+   * content, so `.cm-scroller`'s own `overflow-x: auto` is what
+   * handles long lines, the way it's meant to. */
+  width: 100%;
+  min-width: 0;
   font-family: var(--psdl-font);
 }
 
