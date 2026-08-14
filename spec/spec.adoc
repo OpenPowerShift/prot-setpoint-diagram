@@ -61,6 +61,7 @@ A document MUST contain exactly one `diagram` block.
 Statements are terminated by a newline or `}`. Semicolons are not used.
 A line comment starts with `#` and continues to the end of the line.
 Keywords and units are case-sensitive.
+Every quoted string (the diagram title, a criterion or selection label, a `word` value) is trimmed of leading and trailing whitespace before use — a stray trailing space before the closing quote MUST NOT render as a visible gap on the diagram, and MUST NOT count toward an emptiness check (a string of only whitespace is empty).
 
 == Criterion semantics
 
@@ -106,7 +107,7 @@ The example resolves to `10.8 kA`.
 
 A margin attached to `must` defines the preferred boundary inside the mandatory criterion. Crossing the margin but not the original `must` criterion produces `caution`.
 A margin attached to `should` defines a more conservative preferred boundary; crossing either the margin or the advisory criterion remains `caution`.
-A margin attached to `reference` is display-only: it draws the same criterion-to-boundary band as a must/should margin, in a neutral colour rather than a family colour, giving the reference point a visible range of context (e.g. its rated accuracy) — a renderer MUST still exclude it from the mandatory/preferred interval, status, and zone shading, exactly as an unmargined `reference` is. It does not carry a direction arrow (there is no "acceptable side" to point toward on a point that never expresses a requirement).
+A margin attached to `reference` is display-only: it draws the same criterion-to-boundary band as a must/should margin — a filled dot (neutral colour, not open) at the reference's own value, an open dot at the margin-adjusted end — giving the reference point a visible range of context (e.g. its rated accuracy) — a renderer MUST still exclude it from the mandatory/preferred interval, status, and zone shading, exactly as an unmargined `reference` is. It does not carry a direction arrow (there is no "acceptable side" to point toward on a point that never expresses a requirement). An unmargined `reference` keeps its open (unfilled) dot, unchanged.
 
 === Absolute margins
 
@@ -217,7 +218,7 @@ selected none
 
 The optional string preceding the selection's form NAMES the value — when present, a renderer MUST use it verbatim as the label shown against the selected marker (e.g. `selected "Feeder OCR pickup" 6.5 kA` reads "Feeder OCR pickup", not "Selected"), taking precedence over `word selected`. When absent, the renderer falls back to `word selected` if set, otherwise a default word ("Selected" in English). A renderer MUST NOT silently ignore a given label.
 
-The label (or its fallback) is drawn near the top of the plot, above the marker. The selected value's own NUMBER — the quantity itself, and any `show` equivalents — is a separate element drawn AT or BELOW the calibrated axis, not appended to the label above it. This keeps the reader's eye on one place for "which setting is this" (the label) and one place for "what is its numeric position" (the axis).
+In horizontal orientation, the label (or its fallback) and the selected value's own NUMBER — the quantity itself, and any `show` equivalents — are both drawn together at the axis end: the number first, the label directly under it. A renderer MUST NOT split them across the top and bottom of the plot — a label anchored at the top of the plot, separate from its value, reads as disconnected from the diagram whenever anything (a `secondary axis top`, the zone-percent row) is stacked between them. Keeping both lines together at the axis keeps them reading as one anchored unit regardless of what else the diagram stacks above the plot.
 
 == Selected-setting percentages
 
@@ -442,6 +443,7 @@ style title-align left
 style title-position top
 style arrows on
 style boundary-current off
+style axis on
 ----
 
 `theme` values: `light`, `dark`, `print`, `monochrome`.
@@ -453,8 +455,9 @@ style boundary-current off
 `title-position` values: `top`, `bottom` — whether the title (and its divider) renders above the plot, in its usual place, or as its own row at the very bottom of the canvas, below the status callout.
 `arrows` values: `on`, `off`. Controls the small acceptable-direction arrow drawn next to each margin-adjusted boundary. When `off`, the renderer MUST NOT draw it — the margin value and leader already convey the same boundary, and a reader who finds the arrow redundant can drop it without losing information.
 `boundary-current` values: `on`, `off`. When `on`, the text next to a margin-adjusted boundary's open circle is prefixed with the boundary's own resulting current (e.g. "7.2 kA · 10%") rather than just the margin that produced it (e.g. "10%") — useful when a reader wants the actual amp value at a glance, without computing it from the criterion and margin themselves.
+`axis` values: `on`, `off`. Controls the calibrated axis line, its ticks and its number labels (gridlines derived from those ticks go with them). Everything else — zones, markers, the selected line — is unaffected. DEFAULTS to `off` when the resolved scale is `indicative`: an indicative axis's positions are ranked, not calibrated, so a bare axis with ticks would read as more precise than it actually is. Defaults to `on` for `linear`/`log`. An explicit `style axis` always overrides this default.
 
-Defaults are `print`, `accessible`, `subtle` for report view, `pale` connections, `title on`, `title-align left`, `title-position top`, `arrows on`, and `boundary-current off`.
+Defaults are `print`, `accessible`, `subtle` for report view, `pale` connections, `title on`, `title-align left`, `title-position top`, `arrows on`, `boundary-current off`, and `axis` per the scale-dependent rule above.
 An implementation MAY add namespaced style extensions. Unknown unnamespaced style properties are errors.
 
 == Normative visual encoding

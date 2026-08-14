@@ -154,6 +154,7 @@ export interface Resolved {
     titlePosition: 'top' | 'bottom';
     arrows: 'on' | 'off';
     boundaryCurrent: 'on' | 'off';
+    axis: 'on' | 'off';
     width?: number;
     height?: number;
     words: Partial<Record<import('../parser/ast.js').WordName, string>>;
@@ -213,6 +214,12 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
   const wordChoices: Partial<Record<import('../parser/ast.js').WordName, string>> = {};
   let sizeWidth: number | undefined;
   let sizeHeight: number | undefined;
+  /* Undefined until an explicit `style axis on|off` is seen — the
+   * DEFAULT depends on the resolved scale (indicative defaults to off,
+   * everything else to on), so it can't be finalised until chosenScale
+   * is known further down; an explicit statement always wins over that
+   * default either way. */
+  let axisOverride: 'on' | 'off' | undefined;
 
   for (const stmt of doc.body) {
     switch (stmt.type) {
@@ -276,6 +283,9 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
         }
         if (stmt.property === 'boundary-current' && ['on', 'off'].includes(stmt.value)) {
           paletteChoice.boundaryCurrent = stmt.value as typeof paletteChoice.boundaryCurrent;
+        }
+        if (stmt.property === 'axis' && ['on', 'off'].includes(stmt.value)) {
+          axisOverride = stmt.value as 'on' | 'off';
         }
         break;
       case 'word':
@@ -526,6 +536,13 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
     chosenScale = 'linear';
   }
 
+  /* `style axis` default depends on the resolved scale: indicative
+   * scale's positions are ranked, not calibrated, so a bare axis with
+   * ticks reads as more precise than it is — off by default there.
+   * Linear/log defaults on, as before. An explicit `style axis` always
+   * wins over this default either way. */
+  const axisChoice: 'on' | 'off' = axisOverride ?? (chosenScale === 'indicative' ? 'off' : 'on');
+
   if (chosenScale === 'log') {
     const nonPositive = allValues_A.find((v) => v <= 0);
     if (nonPositive !== undefined) {
@@ -756,6 +773,7 @@ export function resolveDiagram(doc: Diagram): ResolveResult {
         titlePosition: paletteChoice.titlePosition,
         arrows: paletteChoice.arrows,
         boundaryCurrent: paletteChoice.boundaryCurrent,
+        axis: axisChoice,
         width: sizeWidth,
         height: sizeHeight,
         words: wordChoices,
@@ -1246,6 +1264,17 @@ function applyStyle(diagnostics: Diagnostic[], stmt: import('../parser/ast.js').
       code: 'PSDL001_UNKNOWN_STATEMENT',
       severity: 'error',
       message: `Unknown boundary-current value '${stmt.value}'.`,
+      line: stmt.loc.line,
+      column: stmt.loc.column,
+      offset: stmt.loc.offset,
+      length: 5,
+    });
+  }
+  if (stmt.property === 'axis' && !['on', 'off'].includes(stmt.value)) {
+    diagnostics.push({
+      code: 'PSDL001_UNKNOWN_STATEMENT',
+      severity: 'error',
+      message: `Unknown axis value '${stmt.value}'.`,
       line: stmt.loc.line,
       column: stmt.loc.column,
       offset: stmt.loc.offset,

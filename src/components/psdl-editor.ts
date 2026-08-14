@@ -164,7 +164,7 @@ const KEYWORD_HELP: Record<string, string> = {
   scale: 'Axis scale: `auto`, `linear`, `log`, or `indicative` (ordered, non-calibrated spacing).',
   range: 'Axis bounds: `auto`, `all`, `focus` (around controlling boundaries), or an explicit `LOW to HIGH kA`.',
   word: 'Overrides a status word\'s displayed text, e.g. `word caution "Review"`.',
-  style: 'Visual options: `theme`, `palette`, `zones`, `connections`, `title`, `title-align`, `title-position`, `arrows`, `boundary-current`.',
+  style: 'Visual options: `theme`, `palette`, `zones`, `connections`, `title`, `title-align`, `title-position`, `arrows`, `boundary-current`, `axis`.',
   size: 'Explicit canvas dimension in pixels: `size width N` and/or `size height N`.',
   secondary: 'Second calibrated axis on the opposite side of the plot: `secondary axis top|bottom kA|MVA`.',
   below: 'A criterion the selected value must stay ABOVE, e.g. `below "Maximum load" must 3.5 kA`.',

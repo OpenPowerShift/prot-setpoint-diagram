@@ -423,6 +423,41 @@ psdl-editor {
   overflow: hidden;
 }
 
+/* unsaved-changes confirm dialog — reuses .psdl-guide-overlay as its
+ * backdrop, with its own small centred panel rather than the guide's
+ * full-height one. */
+.psdl-confirm-panel {
+  background: var(--psdl-bg);
+  color: var(--psdl-fg);
+  margin: auto;
+  width: min(360px, 92%);
+  border-radius: 6px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--psdl-border);
+  padding: 20px;
+}
+
+.psdl-confirm-title {
+  font-family: var(--psdl-sans);
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.psdl-confirm-body {
+  font-family: var(--psdl-sans);
+  font-size: 13px;
+  color: var(--psdl-fg-muted);
+  line-height: 1.5;
+  margin: 0 0 18px;
+}
+
+.psdl-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .psdl-guide-tabs {
   display: flex;
   align-items: center;

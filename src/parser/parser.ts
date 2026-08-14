@@ -274,7 +274,7 @@ const TYPE_KEYWORDS = new Set([
 const DISPLAY_QUANTITIES: DisplayQuantity[] = ['entered', 'current', 'mva', 'secondary'];
 const SCALE_KINDS: ScaleKind[] = ['linear', 'log', 'indicative', 'auto'];
 const VIEW_KINDS: ViewKind[] = ['report', 'compact', 'rail'];
-const STYLE_PROPERTIES = new Set(['theme', 'palette', 'zones', 'connections', 'title', 'title-align', 'title-position', 'arrows', 'boundary-current']);
+const STYLE_PROPERTIES = new Set(['theme', 'palette', 'zones', 'connections', 'title', 'title-align', 'title-position', 'arrows', 'boundary-current', 'axis']);
 const STYLE_VALUES = new Set<string>([
   // theme
   'light',
@@ -387,7 +387,12 @@ export function parse(src: string): ParseResult {
   function parseDiagram(start: SourceLocation): Diagram | undefined {
     const titleTok = expect('string', `diagram title`);
     if (!titleTok) return undefined;
-    if (titleTok.text.length === 0) {
+    /* Trimmed — leading/trailing whitespace in a quoted string (easy to
+     * pick up by accident, e.g. a trailing space before the closing
+     * quote) shouldn't render as a visible gap on the diagram or count
+     * toward "is this label empty". */
+    const title = titleTok.text.trim();
+    if (title.length === 0) {
       pushError('PSDL003_STRING_REQUIRED', `Diagram title must not be empty.`, titleTok.loc, titleTok.text.length + 2);
     }
     const lbrace = expect('lbrace', `'{'`);
@@ -404,7 +409,7 @@ export function parse(src: string): ParseResult {
     expect('rbrace', `'}'`);
     return {
       type: 'diagram',
-      title: titleTok.text,
+      title,
       body,
       loc: { line: start.line, column: start.column, offset: start.offset },
     };
@@ -638,10 +643,11 @@ export function parse(src: string): ParseResult {
     seen.add('word:' + nameTok.text);
     const textTok = expect('string', `word value`);
     if (!textTok) return undefined;
-    if (textTok.text.length === 0) {
+    const text = textTok.text.trim();
+    if (text.length === 0) {
       pushError('PSDL003_STRING_REQUIRED', `Word value must not be empty.`, textTok.loc);
     }
-    return { type: 'word', name: nameTok.text as WordName, text: textTok.text, loc: start.loc };
+    return { type: 'word', name: nameTok.text as WordName, text, loc: start.loc };
   }
 
   function parseStyle(start: Token, seen: Set<string>): StyleStatement {
@@ -752,7 +758,8 @@ export function parse(src: string): ParseResult {
     if (!labelTok) {
       return constraintFallback(start.loc, direction);
     }
-    if (labelTok.text.length === 0) {
+    const label = labelTok.text.trim();
+    if (label.length === 0) {
       pushError('PSDL003_STRING_REQUIRED', `Criterion label must not be empty.`, labelTok.loc);
     }
     const reqTok = next();
@@ -785,7 +792,7 @@ export function parse(src: string): ParseResult {
     return {
       type: 'constraint',
       direction,
-      label: labelTok.text,
+      label,
       requirement,
       value,
       margin,
@@ -859,7 +866,7 @@ export function parse(src: string): ParseResult {
     let label = '';
     if (at('string')) {
       const labelTok = next();
-      label = labelTok.text;
+      label = labelTok.text.trim();
     }
     const tok = peek();
     let form: SelectionForm;

@@ -33,6 +33,9 @@ import SECONDARY_AXIS_SRC from '../../examples/20-secondary-axis.psdl?raw';
 
 const STARTER_PSDL = FEEDER_SRC;
 const SAVE_KEY = 'psdl.savedSource';
+/** Not one of EXAMPLES' own ids (those are all bare slugs) — used to
+ * pick the saved entry back out of the combined list unambiguously. */
+const SAVED_ID = '__saved__';
 
 const EXAMPLES: { id: string; label: string; src: string }[] = [
   { id: 'feeder-setting', label: 'Feeder setting (spec)', src: FEEDER_SRC },
@@ -69,6 +72,29 @@ interface Mark {
   length: number;
 }
 
+/** Turns a diagram title into a safe download filename stem: runs of
+ * anything that isn't a letter or digit collapse to a SINGLE underscore
+ * (not one per character), so "Feeder OCR — 51P!!" becomes
+ * "Feeder_OCR_51P" rather than "Feeder_OCR____51P__". */
+function slugifyTitle(title: string): string {
+  const cleaned = title.trim().replace(/[^a-zA-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return cleaned || 'diagram';
+}
+
+/** Best-effort label for the saved-work dropdown entry: the diagram's
+ * own title, when the saved source still parses, so it reads like any
+ * other named example instead of a generic placeholder. */
+function deriveSavedLabel(src: string): string {
+  try {
+    const result = process(src);
+    return result.resolved?.title ? `★ ${result.resolved.title} (saved)` : '★ Saved diagram';
+  } catch {
+    return '★ Saved diagram';
+  }
+}
+
+type PendingSwitch = { type: 'example'; id: string } | { type: 'reset' };
+
 @customElement('psdl-app')
 export class PsdlApp extends LitElement {
   protected override createRenderRoot(): HTMLElement {
@@ -86,7 +112,21 @@ export class PsdlApp extends LitElement {
   @state() private marks: Mark[] = [];
   @state() private guideOpen = false;
   @state() private savedFlash = false;
+  @state() private copiedFlash = false;
   private savedFlashTimer: ReturnType<typeof setTimeout> | null = null;
+  private copiedFlashTimer: ReturnType<typeof setTimeout> | null = null;
+  /* The saved-work dropdown entry, when a save exists — kept as its own
+   * state field rather than mutating the module-level EXAMPLES array,
+   * since it's per-browser working state, not a bundled example. */
+  @state() private savedEntry: { id: string; label: string; src: string } | null = null;
+  /* What `this.source` was the last time it was freshly LOADED (an
+   * example picked, the saved entry restored/loaded, or a successful
+   * Save) — differing from this is what "unsaved changes" means, not
+   * differing from any particular example. */
+  @state() private loadedBaseline = STARTER_PSDL;
+  /* Set when the user tries to switch away from a dirty diagram — shows
+   * the save/discard/cancel prompt; cleared once they resolve it. */
+  @state() private pendingSwitch: PendingSwitch | null = null;
   /* Tracks the theme as Lit state, not read from the DOM at render time:
    * document.documentElement.dataset.theme is invisible to Lit's
    * reactivity, so the toggle button's own label went stale after every
@@ -105,11 +145,13 @@ export class PsdlApp extends LitElement {
     try {
       const savedSource = localStorage.getItem(SAVE_KEY);
       if (savedSource) {
+        this.savedEntry = { id: SAVED_ID, label: deriveSavedLabel(savedSource), src: savedSource };
         this.source = savedSource;
-        /* Not one of EXAMPLES' ids, so the picker shows no selection —
-         * correct, since this is the user's own saved work, not an
-         * example they picked. */
-        this.activeExampleId = '';
+        this.loadedBaseline = savedSource;
+        /* Not one of EXAMPLES' ids — the picker shows the saved entry
+         * selected instead, correct since this is the user's own saved
+         * work, not a bundled example. */
+        this.activeExampleId = SAVED_ID;
       }
     } catch {
       /* same as above — restoring saved work is best-effort only. */
@@ -144,12 +186,53 @@ export class PsdlApp extends LitElement {
     this.parseAndRender();
   }
 
-  private onPickExample(id: string): void {
-    const ex = EXAMPLES.find((e) => e.id === id);
-    if (!ex) return;
-    this.source = ex.src;
-    this.activeExampleId = id;
+  private isDirty(): boolean {
+    return this.source !== this.loadedBaseline;
+  }
+
+  /** Entry point for both the Examples picker and Reset — goes straight
+   * through when there's nothing to lose, otherwise holds the request
+   * and shows the save/discard/cancel prompt. */
+  private requestSwitch(action: PendingSwitch): void {
+    if (this.isDirty()) {
+      this.pendingSwitch = action;
+    } else {
+      this.performSwitch(action);
+    }
+  }
+
+  private performSwitch(action: PendingSwitch): void {
+    if (action.type === 'example') {
+      const ex = action.id === SAVED_ID ? this.savedEntry : EXAMPLES.find((e) => e.id === action.id);
+      if (!ex) return;
+      this.source = ex.src;
+      this.activeExampleId = ex.id;
+      this.loadedBaseline = ex.src;
+    } else {
+      this.source = STARTER_PSDL;
+      this.activeExampleId = 'feeder-setting';
+      this.loadedBaseline = STARTER_PSDL;
+    }
     this.parseAndRender();
+  }
+
+  private resolvePendingSave(): void {
+    if (!this.pendingSwitch) return;
+    this.saveSource();
+    const action = this.pendingSwitch;
+    this.pendingSwitch = null;
+    this.performSwitch(action);
+  }
+
+  private resolvePendingDiscard(): void {
+    if (!this.pendingSwitch) return;
+    const action = this.pendingSwitch;
+    this.pendingSwitch = null;
+    this.performSwitch(action);
+  }
+
+  private resolvePendingCancel(): void {
+    this.pendingSwitch = null;
   }
 
   private parseAndRender(): void {
@@ -197,7 +280,10 @@ export class PsdlApp extends LitElement {
 
   /** Persists the current source to the browser so it survives a reload
    * — restored in connectedCallback. Distinct from "Download": this
-   * keeps working state in THIS browser, not a portable file. */
+   * keeps working state in THIS browser, not a portable file. Also
+   * updates (or creates) the saved-work entry in the Examples picker
+   * and marks the current source as no longer dirty, so switching
+   * diagrams right after a Save doesn't immediately re-prompt. */
   private saveSource(): void {
     try {
       localStorage.setItem(SAVE_KEY, this.source);
@@ -205,6 +291,9 @@ export class PsdlApp extends LitElement {
       /* privacy mode / disabled storage — saving is best-effort, same
        * as the split-position persistence above. */
     }
+    this.savedEntry = { id: SAVED_ID, label: deriveSavedLabel(this.source), src: this.source };
+    this.loadedBaseline = this.source;
+    this.activeExampleId = SAVED_ID;
     this.savedFlash = true;
     if (this.savedFlashTimer) clearTimeout(this.savedFlashTimer);
     this.savedFlashTimer = setTimeout(() => { this.savedFlash = false; }, 1500);
@@ -215,7 +304,7 @@ export class PsdlApp extends LitElement {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${this.diagramTitle.replace(/\s+/g, '-').toLowerCase() || 'diagram'}.psdl`;
+    a.download = `${slugifyTitle(this.diagramTitle)}.psdl`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -225,7 +314,7 @@ export class PsdlApp extends LitElement {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${this.diagramTitle.replace(/\s+/g, '-').toLowerCase() || 'psdl'}.svg`;
+    a.download = `${slugifyTitle(this.diagramTitle)}.svg`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -248,7 +337,7 @@ export class PsdlApp extends LitElement {
         const urlPng = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = urlPng;
-        a.download = `${this.diagramTitle.replace(/\s+/g, '-').toLowerCase() || 'psdl'}.png`;
+        a.download = `${slugifyTitle(this.diagramTitle)}.png`;
         a.click();
         URL.revokeObjectURL(urlPng);
       });
@@ -257,22 +346,65 @@ export class PsdlApp extends LitElement {
     img.src = url;
   }
 
+  /** Renders the SVG at a print-quality resolution (~600 DPI, i.e.
+   * ~6.25x a browser's baseline 96 CSS DPI) and copies it to the system
+   * clipboard as a PNG, for pasting straight into a report or email
+   * without an intermediate downloaded file. */
+  private copyPngToClipboard(): void {
+    const DPI_SCALE = 600 / 96;
+    const img = new Image();
+    const svgBlob = new Blob([this.svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(svgBlob);
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round((img.width || 1100) * DPI_SCALE);
+      canvas.height = Math.round((img.height || 580) * DPI_SCALE);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { URL.revokeObjectURL(url); return; }
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob(async (blob) => {
+        URL.revokeObjectURL(url);
+        if (!blob) return;
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+          this.copiedFlash = true;
+          if (this.copiedFlashTimer) clearTimeout(this.copiedFlashTimer);
+          this.copiedFlashTimer = setTimeout(() => { this.copiedFlash = false; }, 2000);
+        } catch {
+          /* Clipboard permission denied, insecure context, or an
+           * unsupported browser — copying is a convenience, not worth
+           * surfacing a hard error for. */
+        }
+      });
+    };
+    img.src = url;
+  }
+
   override render() {
+    const savedOption = this.savedEntry;
     return html`
       <div class="psdl-header">
         <div class="psdl-header-row">
           <div class="psdl-title"><span class="psdl-accent">PSDL</span> — Protection Setting Diagram Language</div>
           <label class="psdl-picker">
             <span class="psdl-picker-label">Examples</span>
-            <select class="psdl-select" @change=${(e: Event) => this.onPickExample((e.target as HTMLSelectElement).value)}>
-              ${EXAMPLES.map((ex) => html`<option value=${ex.id} ?selected=${this.activeExampleId === ex.id}>${ex.label}</option>`)}
+            <select
+              class="psdl-select"
+              .value=${this.activeExampleId}
+              @change=${(e: Event) => this.requestSwitch({ type: 'example', id: (e.target as HTMLSelectElement).value })}
+            >
+              ${savedOption ? html`<option value=${savedOption.id}>${savedOption.label}</option>` : null}
+              ${EXAMPLES.map((ex) => html`<option value=${ex.id}>${ex.label}</option>`)}
             </select>
           </label>
           <button class="psdl-btn" @click=${() => this.toggleTheme()}>${this.lightTheme ? 'Dark' : 'Light'}</button>
           <button class="psdl-btn" @click=${() => this.downloadSvg()}>Download SVG</button>
           <button class="psdl-btn" @click=${() => this.downloadPng()}>Download PNG</button>
+          <button class="psdl-btn" title="Copy a print-quality PNG (~600 DPI) to the clipboard" @click=${() => this.copyPngToClipboard()}>${this.copiedFlash ? 'Copied' : 'Copy'}</button>
           <button class="psdl-btn" title="Open the guide (or press ?)" @click=${() => { this.guideOpen = true; }}>Guide <span class="psdl-kbd">?</span></button>
-          <button class="psdl-btn" @click=${() => { this.source = STARTER_PSDL; this.activeExampleId = 'feeder-setting'; this.parseAndRender(); }}>Reset</button>
+          <button class="psdl-btn" @click=${() => this.requestSwitch({ type: 'reset' })}>Reset</button>
         </div>
       </div>
       <div class="psdl-main">
@@ -311,6 +443,24 @@ export class PsdlApp extends LitElement {
         .open=${this.guideOpen}
         @close=${() => { this.guideOpen = false; }}
       ></psdl-guide>
+      ${this.renderPendingSwitchDialog()}
+    `;
+  }
+
+  private renderPendingSwitchDialog() {
+    if (!this.pendingSwitch) return null;
+    return html`
+      <div class="psdl-guide-overlay" @click=${(e: MouseEvent) => { if (e.target === e.currentTarget) this.resolvePendingCancel(); }}>
+        <div class="psdl-confirm-panel">
+          <div class="psdl-confirm-title">Unsaved changes</div>
+          <p class="psdl-confirm-body">This diagram has changes that haven't been saved. Save them before switching?</p>
+          <div class="psdl-confirm-actions">
+            <button class="psdl-btn" @click=${() => this.resolvePendingCancel()}>Cancel</button>
+            <button class="psdl-btn" @click=${() => this.resolvePendingDiscard()}>Discard</button>
+            <button class="psdl-btn is-active" @click=${() => this.resolvePendingSave()}>Save</button>
+          </div>
+        </div>
+      </div>
     `;
   }
 
