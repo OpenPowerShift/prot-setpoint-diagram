@@ -341,7 +341,7 @@ const AXIS_TICK_ROW = 26;
  * label row directly under that, both on/just below the axis — spec
  * §Selected-setting label: both live at the axis end now, not split
  * between the axis and a floating row above the plot. */
-const SELECTED_VALUE_ROW = 36;
+const SELECTED_VALUE_ROW = 42;
 /** Room for the status callout (state pill + detail line) at the very
  * bottom of the canvas. */
 const STATUS_AREA = 56;
@@ -1507,7 +1507,14 @@ function drawSelection(
      * labels — keeping both lines together at the axis end reads as one
      * anchored unit instead. */
     const valueParts = [parts.primary, parts.above, parts.below].filter((v): v is string => !!v);
-    const valueY = padT + plotH + bottomAxisRow + 14;
+    /* +20, not the marker dot's own +6 radius: a 13px label's ascender
+     * reaches ~9px above its baseline, so +14 left the glyph tops
+     * overlapping the dot by about a pixel whenever the axis itself
+     * contributed no clearance (axis off — e.g. indicative scale's
+     * default). +20 leaves a few px of daylight between the dot and
+     * the text in that case, and simply widens an already-fine gap
+     * when the axis row is present. */
+    const valueY = padT + plotH + bottomAxisRow + 20;
     markerOut.push(`<text data-role="selected-value" x="${x}" y="${valueY}" font-size="${fs - 1}" font-weight="700" fill="${palette.selected}" text-anchor="middle">${escapeText(valueParts.join(' · '))}</text>`);
     markerOut.push(`<text data-role="selected-label" x="${x}" y="${valueY + 16}" font-size="${fs - 1}" font-weight="700" fill="${palette.selected}" text-anchor="middle">${escapeText(parts.prefix)}</text>`);
   } else {
